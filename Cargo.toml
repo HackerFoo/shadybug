@@ -1,0 +1,22 @@
+[package]
+name = "shadybug"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+glam = "0.29"
+image = { version = "0.25", optional = true, default-features = false, features = [ "png" ] }
+
+[[example]]
+name = "cube"
+required-features = [ "image" ]
+
+# always optimize dependencies
+[profile.dev.package."*"]
+opt-level = 3
+debug = true
+
+[profile.dev]
+opt-level = 1
+debug = true
+
