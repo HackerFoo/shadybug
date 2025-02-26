@@ -167,15 +167,24 @@ impl<'a, T: Shader> Sampler<'a, T> {
             (Stage::SampleY, coord + diff.sample_offset.with_x(0.), false),
             (Stage::Normal, coord, true),
         ] {
+            // set the stage used for computing derivatives
             diff.stage = stage;
+
+            // barycentric coordinates, such that multiplying the weights by
+            // the vertices will give the coordinates back in position.xy
             let barycentric = Vec3::new(
                 det3(coord, self.ndc[1].xy(), self.ndc[2].xy()),
                 det3(self.ndc[0].xy(), coord, self.ndc[2].xy()),
                 det3(self.ndc[0].xy(), self.ndc[1].xy(), coord),
             ) / self.det;
+
+            // discard if outside the triangle
             if keep && barycentric.cmplt(Vec3::ZERO).any() {
                 discard!();
             }
+
+            // perspective correct interpolation
+            // see: https://stackoverflow.com/questions/24441631/how-exactly-does-opengl-do-perspectively-correct-linear-interpolation
             let depths = [
                 self.vertex_outputs[0].position().zw(),
                 self.vertex_outputs[1].position().zw(),
