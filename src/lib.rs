@@ -198,13 +198,13 @@ impl<'a, T: Shader> Sampler<'a, T> {
                 / barycentric_depth.y;
             let input = Interpolate3::interpolate3(&self.vertex_outputs, perspective);
             let ndc = Interpolate3::interpolate3(&self.ndc, perspective);
-            result = Some(self.shader.fragment(input, ndc, self.det < 0., &mut diff));
+            result = Some(self.shader.fragment(input, ndc, self.det > 0., &mut diff));
         }
         result.unwrap()
     }
     /// calculate the bounds in pixels
     pub fn bounds(&self, pixels: u32) -> Bounds<UVec2> {
-        if self.det >= 0. {
+        if self.det < 0. {
             Bounds::Zero
         } else {
             Bounds::Bounds {
