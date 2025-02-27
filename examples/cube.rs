@@ -1,9 +1,10 @@
 use std::f32::consts::PI;
 
-use glam::{Mat4, UVec2, Vec3, Vec4, Vec4Swizzles};
+use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use image::{DynamicImage, Rgba, Rgba32FImage};
 use shadybug::{
-    Bounds, Diff, HasPosition, Interpolate3, SamplerError, Shader, discard, pixel_to_ndc,
+    DerivativeCell, HasColor, HasDepth, HasPosition, Interpolate3, SamplerError, Shader, discard,
+    render,
 };
 
 const CUBE_POSITIONS: [[f32; 3]; 36] = [
@@ -61,10 +62,9 @@ fn main() {
 
     let bindings = Bindings::new(&view, world_from_local);
 
-    // the image will be 512x512
-    let img_size = 512u32;
+    // the image will be 1024x1024
+    let img_size = 1024u32;
 
-    let mut depth_buffer = vec![0.; (img_size * img_size) as usize];
     let mut image = Rgba32FImage::new(img_size, img_size);
 
     let indices: Vec<usize> = (0..36).collect();
@@ -75,28 +75,10 @@ fn main() {
         })
         .collect();
 
-    // for each triangle
-    for indices in indices.chunks(3) {
-        // draw_triangle runs the vertex shader for each vertex,
-        // and builds a sampler that can run the fragment shader for each pixel
-        let sampler = bindings.draw_triangle(&vertices, indices);
-
-        // sample each pixel within the bounding box of the triangle
-        if let Bounds::Bounds { lo, hi } = sampler.bounds(img_size) {
-            for y in lo.y..=hi.y {
-                for x in lo.x..=hi.x {
-                    let pixel = image.get_pixel_mut(x, y);
-                    let depth = &mut depth_buffer[(y * img_size + x) as usize];
-                    if let Ok(output) = sampler.get(pixel_to_ndc(UVec2::new(x, y), img_size)) {
-                        if output.depth > *depth {
-                            *depth = output.depth;
-                            *pixel = Rgba(output.color);
-                        }
-                    }
-                }
-            }
-        }
-    }
+    // render to the image
+    render(img_size, &bindings, &vertices, &indices, |x, y, color| {
+        image.put_pixel(x, y, Rgba(color))
+    });
 
     // convert to an 8-bit image and save
     DynamicImage::ImageRgba32F(image)
@@ -159,7 +141,7 @@ struct Vertex {
 /// Vertex shader output
 /// These are interpolated within a triangle for fragment shader input.
 /// This must have a clip space position.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct VertexOutput {
     position: Vec4,
     world_position: Vec3,
@@ -194,11 +176,23 @@ struct FragmentOutput {
     pub world_normal: Vec3,
 }
 
+impl HasDepth for FragmentOutput {
+    fn depth(&self) -> f32 {
+        self.depth
+    }
+}
+impl HasColor for FragmentOutput {
+    fn color(&self) -> [f32; 4] {
+        self.color
+    }
+}
+
 impl<'a> Shader for Bindings<'a> {
     type Vertex = Vertex;
     type VertexOutput = VertexOutput;
     type FragmentOutput = FragmentOutput;
-    type Error = SamplerError;
+    type Error = ();
+    type DerivativeType = Vec3;
     fn vertex(&self, vertex: &Vertex) -> VertexOutput {
         let world_position = self.world_from_local * vertex.position.extend(1.);
         VertexOutput {
@@ -206,22 +200,21 @@ impl<'a> Shader for Bindings<'a> {
             world_position: world_position.xyz() / world_position.w,
         }
     }
-    fn fragment(
+    async fn fragment(
         &self,
         input: VertexOutput,
         _ndc: Vec4,
         front_facing: bool,
-        diff: &mut Diff,
+        derivative: &DerivativeCell<Vec3>,
     ) -> Result<FragmentOutput, SamplerError> {
         if !front_facing {
             discard!();
         }
 
         // compute the world normal from the derivative of the world position
-        let world_normal = diff
-            .dpdx(input.world_position, 0)?
-            .cross(diff.dpdy(input.world_position, 0)?)
-            .normalize();
+        let dpdx = derivative.dpdx(input.world_position).await?;
+        let dpdy = derivative.dpdy(input.world_position).await?;
+        let world_normal = dpdx.cross(dpdy).normalize();
 
         // simple lighting based on world normal
         let brightness = world_normal.z.max(0.) * 0.8 + 0.2;
