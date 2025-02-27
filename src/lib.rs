@@ -6,6 +6,7 @@ use std::{
 
 use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
 
+/// Discard a fragment
 #[macro_export]
 macro_rules! discard {
     () => {
@@ -13,7 +14,7 @@ macro_rules! discard {
     };
 }
 
-/// used to sample one pixel at a time to get fragment output
+/// Used to sample one pixel at a time to get fragment output
 pub struct Sampler<'a, T: Shader> {
     pub shader: &'a T,
     pub vertex_outputs: [T::VertexOutput; 3],
@@ -21,13 +22,13 @@ pub struct Sampler<'a, T: Shader> {
     pub det: f32,
 }
 
-/// determinate of AB and AC, gives twice the area of the triangle ABC
+/// Determinate of AB and AC, gives twice the area of the triangle ABC
 fn det3(a: Vec2, b: Vec2, c: Vec2) -> f32 {
     (b - a).perp_dot(c - a)
 }
 
 impl<'a, T: Shader> Sampler<'a, T> {
-    /// build a sampler from a shader and a triangle
+    /// Build a sampler from a shader and a triangle
     pub fn new(shader: &'a T, vertex_outputs: [T::VertexOutput; 3]) -> Self {
         let ndc = [
             vertex_outputs[0].ndc(),
@@ -44,7 +45,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
     }
 }
 
-/// define how to interpolate using barycentric coordinates (weights.)
+/// Define how to interpolate using barycentric coordinates (weights.)
 pub trait Interpolate3 {
     fn interpolate3(input: &[Self; 3], barycentric: Vec3) -> Self
     where
@@ -68,7 +69,7 @@ impl Diff {
             id_offset: 0,
         }
     }
-    /// if using dpdx/dpdy in multiple function calls, use this to ensure unique ids
+    /// If using dpdx/dpdy in multiple function calls, use this to ensure unique ids
     pub fn id_offset(&mut self, id_offset: usize) -> &mut Self {
         self.id_offset = id_offset;
         self
@@ -95,7 +96,7 @@ impl Diff {
             }
         }
     }
-    /// calculate the partial derivative with respect to X position
+    /// Calculate the partial derivative with respect to X position
     /// id + id_offset must be unique per call within the fragment shader.
     pub fn dpdx<V>(&mut self, value: V, id: usize) -> Result<V, SamplerError>
     where
@@ -103,7 +104,7 @@ impl Diff {
     {
         Ok((self.store(value.clone(), id, Stage::SampleX)? - value) / self.sample_offset.x)
     }
-    /// calculate the partial derivative with respect to Y position
+    /// Calculate the partial derivative with respect to Y position
     /// id + id_offset must be unique per call within the fragment shader.
     pub fn dpdy<V>(&mut self, value: V, id: usize) -> Result<V, SamplerError>
     where
@@ -121,14 +122,14 @@ where T: Add<T, Output = T> + Mul<f32, Output = T> + Copy
     }
 }
 
-/// convert a pixel coordinate to normalized device coordinates
+/// Convert a pixel coordinate to normalized device coordinates
 pub fn pixel_to_ndc(coord: UVec2, pixels: u32) -> Vec2 {
     let pixels = pixels as f32;
     coord.as_vec2() * (2. / pixels) - 1. + (0.5 / pixels)
 }
 
-/// convert normalized device coordinates to a pixel
-fn ndc_to_pixel(coord: Vec2, pixels: u32) -> UVec2 {
+/// Convert normalized device coordinates to a pixel
+pub fn ndc_to_pixel(coord: Vec2, pixels: u32) -> UVec2 {
     let pixels = pixels as f32;
     ((coord - (0.5 / pixels) + 1.) * 0.5 * pixels).as_uvec2()
 }
@@ -146,7 +147,7 @@ fn test_ndc_pixel_conversion() {
     assert_eq!(ndc_to_pixel(Vec2::splat(1.), 512).x, 511);
 }
 
-/// upper and lower bounds for something
+/// Upper and lower bounds for something
 #[derive(Debug, Eq, PartialEq, Clone, Copy, Default)]
 pub enum Bounds<A> {
     #[default]
@@ -157,8 +158,8 @@ pub enum Bounds<A> {
     },
 }
 
-impl<'a, T: Shader> Sampler<'a, T> {
-    /// run the fragment shader for the given coordinates
+impl<T: Shader> Sampler<'_, T> {
+    /// Run the fragment shader for the given coordinates
     pub fn get(&self, coord: Vec2) -> Result<T::FragmentOutput, T::Error> {
         let mut result = None;
         let mut diff = Diff::new();
@@ -202,7 +203,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
         }
         result.unwrap()
     }
-    /// calculate the bounds in pixels
+    /// Calculate the bounds in pixels
     pub fn bounds(&self, pixels: u32) -> Bounds<UVec2> {
         if self.det < 0. {
             Bounds::Zero
@@ -221,7 +222,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
     }
 }
 
-/// vertex shader outputs must have a clip space position
+/// Vertex shader outputs must have a clip space position
 pub trait HasPosition {
     fn position(&self) -> Vec4;
     fn ndc(&self) -> Vec4 {
@@ -230,7 +231,7 @@ pub trait HasPosition {
     }
 }
 
-/// define vertex and fragment shaders
+/// Define vertex and fragment shaders
 pub trait Shader: Sized {
     type Vertex;
     type VertexOutput: HasPosition + Interpolate3;
@@ -261,7 +262,7 @@ pub trait Shader: Sized {
     }
 }
 
-/// stage of fragment shader, used to compute derivates
+/// Stage of fragment shader, used to compute derivatives
 #[derive(PartialEq, Eq, Hash, Clone, Copy)]
 pub enum Stage {
     SampleX,
@@ -269,7 +270,7 @@ pub enum Stage {
     Normal,
 }
 
-/// invalid fragment shader outputs
+/// Invalid fragment shader outputs
 #[derive(Debug)]
 pub enum SamplerError {
     Discard,

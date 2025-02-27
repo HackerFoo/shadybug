@@ -105,7 +105,7 @@ fn main() {
         .unwrap();
 }
 
-/// view transforms
+/// View transforms
 #[derive(Debug)]
 pub struct View {
     pub world_position: Vec3,
@@ -117,7 +117,7 @@ pub struct View {
 }
 
 impl View {
-    /// create a new view by computing from given values
+    /// Create a new view by computing from given values
     pub fn new(view_from_world: Mat4, clip_from_view: Mat4) -> Self {
         let world_from_view = view_from_world.inverse();
         let world_position = world_from_view.w_axis.xyz() / world_from_view.w_axis.w;
@@ -134,7 +134,7 @@ impl View {
     }
 }
 
-/// bindings available to all triangles
+/// Bindings available to all triangles
 #[derive(Debug)]
 struct Bindings<'a> {
     world_from_local: Mat4,
@@ -150,15 +150,15 @@ impl<'a> Bindings<'a> {
     }
 }
 
-/// vertex shader input
+/// Vertex shader input
 #[derive(Debug)]
 struct Vertex {
     position: Vec3,
 }
 
-/// vertex shader output
-/// these are interpolated within a triangle for fragment shader input
-/// this must have a clip space position
+/// Vertex shader output
+/// These are interpolated within a triangle for fragment shader input.
+/// This must have a clip space position.
 #[derive(Debug)]
 struct VertexOutput {
     position: Vec4,
@@ -184,7 +184,8 @@ impl HasPosition for VertexOutput {
     }
 }
 
-/// fragment output
+/// Fragment output
+#[allow(dead_code)]
 #[derive(Debug)]
 struct FragmentOutput {
     pub depth: f32,
@@ -224,10 +225,7 @@ impl<'a> Shader for Bindings<'a> {
 
         // simple lighting based on world normal
         let brightness = world_normal.z.max(0.) * 0.8 + 0.2;
-        let mut color = [brightness, 0., 0., 1.];
-        if world_normal.z > 0.5 {
-            // color[2] = 1.;
-        }
+        let color = [brightness, 0., 0., 1.];
 
         Ok(FragmentOutput {
             depth: input.position.z / input.position.w,
