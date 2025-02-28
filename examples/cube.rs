@@ -204,6 +204,7 @@ impl<'a> Shader for Bindings<'a> {
         &self,
         input: VertexOutput,
         _ndc: Vec4,
+        barycentric: Vec3,
         front_facing: bool,
         derivative: &DerivativeCell<Vec3>,
     ) -> Result<FragmentOutput, SamplerError> {
@@ -217,8 +218,12 @@ impl<'a> Shader for Bindings<'a> {
         let world_normal = dpdx.cross(dpdy).normalize();
 
         // simple lighting based on world normal
-        let brightness = world_normal.z.max(0.) * 0.8 + 0.2;
-        let color = [brightness, 0., 0., 1.];
+        let brightness = world_normal.z.max(0.).powi(2) * 0.8 + 0.2;
+        let color = if barycentric.min_element() < 0.03 || (0.025..0.075).contains(&(barycentric.max_element() % 0.1)) {
+            [0.1, 0.1, 0.1, 1.]
+        } else {
+            [brightness, 0., 0., 1.]
+        };
 
         Ok(FragmentOutput {
             depth: input.position.z / input.position.w,

@@ -145,7 +145,7 @@ impl<T: Shader> Sampler<'_, T> {
                 let input = Interpolate3::interpolate3(&self.vertex_outputs, perspective);
                 let ndc = Interpolate3::interpolate3(&self.ndc, perspective);
                 self.shader
-                    .fragment(input, ndc, self.det >= 0., derivative)
+                    .fragment(input, ndc, perspective, self.det >= 0., derivative)
                     .await
             })
         });
@@ -233,6 +233,7 @@ pub trait Shader: Sized + Send + Sync {
         &self,
         input: Self::VertexOutput,
         ndc: Vec4,
+        barycentric: Vec3,
         front_facing: bool,
         derivative: &DerivativeCell<Self::DerivativeType>,
     ) -> impl std::future::Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>> + Send;
