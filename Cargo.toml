@@ -8,6 +8,8 @@ homepage = "https://github.com/HackerFoo/shadybug"
 readme = "README.md"
 description = "a simple reference software renderer to be used for debugging shaders"
 exclude = [ "/images", ".*" ]
+categories = [ "rendering", "graphics", "development-tools", "no-std" ]
+keywords = [ "gamedev", "graphics", "shader" ]
 
 [dependencies]
 glam = "0.29"

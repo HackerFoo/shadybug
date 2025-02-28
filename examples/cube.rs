@@ -1,4 +1,4 @@
-use std::f32::consts::PI;
+use core::f32::consts::PI;
 
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use image::{DynamicImage, Rgba, Rgba32FImage};

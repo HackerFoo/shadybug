@@ -1,7 +1,7 @@
 pub mod derivative;
 pub mod render;
 
-use std::{
+use core::{
     fmt::Debug,
     future::Future,
     ops::{Add, Div, Mul, Sub}, task,
@@ -236,7 +236,7 @@ pub trait Shader: Sized + Send + Sync {
         barycentric: Vec3,
         front_facing: bool,
         derivative: &DerivativeCell<Self::DerivativeType>,
-    ) -> impl std::future::Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>> + Send;
     fn draw_triangle<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],

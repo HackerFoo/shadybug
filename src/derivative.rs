@@ -1,4 +1,4 @@
-use std::{
+use core::{
     cell::Cell,
     fmt::Debug,
     ops::Deref,
@@ -26,7 +26,7 @@ impl<T> Default for Derivative<T> {
 pub struct DerivativeCell<T>(Cell<Derivative<T>>);
 
 impl<T: Copy + Debug> Debug for DerivativeCell<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_tuple("DerivativeCell").field(&self.0).finish()
     }
 }
