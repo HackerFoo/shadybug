@@ -236,7 +236,7 @@ pub trait Shader: Sized + Send + Sync {
         barycentric: Vec3,
         front_facing: bool,
         derivative: &DerivativeCell<Self::DerivativeType>,
-    ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>> + Send;
+    ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>;
     fn draw_triangle<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],

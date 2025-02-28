@@ -31,9 +31,6 @@ impl<T: Copy + Debug> Debug for DerivativeCell<T> {
     }
 }
 
-unsafe impl<T> Send for DerivativeCell<T> {}
-unsafe impl<T> Sync for DerivativeCell<T> {}
-
 impl<T> Default for DerivativeCell<T> {
     fn default() -> Self {
         Self(Default::default())
