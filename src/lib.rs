@@ -1,3 +1,5 @@
+#![feature(portable_simd)]
+
 pub mod derivative;
 pub mod render;
 
@@ -5,6 +7,7 @@ use core::{
     fmt::Debug,
     future::Future,
     ops::{Add, Div, Mul, Sub}, task,
+    simd::f32x4,
 };
 
 use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
@@ -41,6 +44,74 @@ impl<'a, T: Shader> Clone for Sampler<'a, T> {
 
 /// Determinate of AB and AC, gives twice the area of the triangle ABC
 fn det3(a: Vec2, b: Vec2, c: Vec2) -> f32 {
+    (b - a).perp_dot(c - a)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct WideVec2([f32x4; 2]);
+
+impl From<[Vec2; 4]> for WideVec2 {
+    fn from(a: [Vec2; 4]) -> Self {
+        WideVec2([
+            f32x4::from_array([a[0].x, a[1].x, a[2].x, a[3].x]),
+            f32x4::from_array([a[0].y, a[1].y, a[2].y, a[3].y])
+        ])
+    }
+}
+
+impl From<Vec2> for WideVec2 {
+    fn from(a: Vec2) -> Self {
+        WideVec2([
+            f32x4::splat(a.x),
+            f32x4::splat(a.y),
+        ])
+    }
+}
+
+impl Into<[Vec2; 4]> for WideVec2 {
+    fn into(self) -> [Vec2; 4] {
+        let [x, y] = self.0;
+        let [ax, bx, cx, dx] = x.to_array();
+        let [ay, by, cy, dy] = y.to_array();
+        [
+            Vec2::new(ax, ay),
+            Vec2::new(bx, by),
+            Vec2::new(cx, cy),
+            Vec2::new(dx, dy),
+        ]
+    }
+}
+
+impl Add<Self> for WideVec2 {
+    type Output = Self;
+    fn add(self, WideVec2([b_x, b_y]): Self) -> Self::Output {
+        let [a_x, a_y] = self.0;
+        WideVec2([
+            a_x + b_x,
+            a_y + b_y
+        ])
+    }
+}
+
+impl Sub<Self> for WideVec2 {
+    type Output = Self;
+    fn sub(self, WideVec2([b_x, b_y]): Self) -> Self::Output {
+        let [a_x, a_y] = self.0;
+        WideVec2([
+            a_x - b_x,
+            a_y - b_y
+        ])
+    }
+}
+
+impl WideVec2 {
+    pub fn perp_dot(self, WideVec2([b_x, b_y]): Self) -> f32x4 {
+        let [a_x, a_y] = self.0;
+        a_x * b_y - a_y * b_x
+    }
+}
+
+fn wide_det3(a: WideVec2, b: WideVec2, c: WideVec2) -> f32x4 {
     (b - a).perp_dot(c - a)
 }
 
@@ -99,7 +170,8 @@ impl<T: Shader> Sampler<'_, T> {
         offsets: Vec2,
     ) -> [Result<T::FragmentOutput, SamplerError<T::Error>>; 4] {
         let derivatives: [DerivativeCell<T::DerivativeType>; 4] = Default::default();
-        let sample_offsets = [Vec2::ZERO, offsets.with_y(0.), offsets.with_x(0.), offsets];
+        let coords4 = WideVec2::from([Vec2::ZERO, offsets.with_y(0.), offsets.with_x(0.), offsets]) + WideVec2::from(coord);
+        /*
         let barycentric = sample_offsets.map(|offset| {
             let coord = coord + offset;
 
@@ -111,6 +183,23 @@ impl<T: Shader> Sampler<'_, T> {
                 det3(self.ndc[0].xy(), self.ndc[1].xy(), coord),
             ) / self.det
         });
+         */
+        let det = f32x4::splat(self.det);
+        let [
+            [bx0, bx1, bx2, bx3],
+            [by0, by1, by2, by3],
+            [bz0, bz1, bz2, bz3]
+        ] = [
+            wide_det3(coords4, self.ndc[1].xy().into(), self.ndc[2].xy().into()) / det,
+            wide_det3(self.ndc[0].xy().into(), coords4, self.ndc[2].xy().into()) / det,
+            wide_det3(self.ndc[0].xy().into(), self.ndc[1].xy().into(), coords4) / det,
+        ].map(f32x4::to_array);
+        let barycentric = [
+            Vec3::new(bx0, by0, bz0),
+            Vec3::new(bx1, by1, bz1),
+            Vec3::new(bx2, by2, bz2),
+            Vec3::new(bx3, by3, bz3)
+        ];
         if barycentric.iter().all(|b| b.cmplt(Vec3::ZERO).any()) {
             discard4!();
         }
