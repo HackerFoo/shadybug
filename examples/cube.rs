@@ -199,7 +199,7 @@ impl<'a> Shader for Bindings<'a> {
     async fn fragment<F>(
         &self,
         input: VertexOutput,
-        _ndc: Vec4,
+        _ndc: Vec2,
         barycentric: Vec3,
         front_facing: bool,
         derivative: F,

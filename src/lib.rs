@@ -24,7 +24,7 @@ macro_rules! discard {
 pub struct Sampler<'a, T: Shader> {
     pub shader: &'a T,
     pub vertex_outputs: [T::VertexOutput; 3],
-    pub ndc: [Vec4; 3],
+    pub ndc: [Vec2; 3],
     pub det: f32,
 }
 
@@ -52,7 +52,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
             vertex_outputs[1].ndc(),
             vertex_outputs[2].ndc(),
         ];
-        let det = det3(ndc[0].xy(), ndc[1].xy(), ndc[2].xy());
+        let det = det3(ndc[0], ndc[1], ndc[2]);
         Self {
             shader,
             vertex_outputs,
@@ -106,9 +106,9 @@ impl<T: Shader> Sampler<'_, T> {
             // barycentric coordinates, such that multiplying the weights by
             // the vertices will give the coordinates back in position.xy
             Vec3::new(
-                det3(coord, self.ndc[1].xy(), self.ndc[2].xy()),
-                det3(self.ndc[0].xy(), coord, self.ndc[2].xy()),
-                det3(self.ndc[0].xy(), self.ndc[1].xy(), coord),
+                det3(coord, self.ndc[1], self.ndc[2]),
+                det3(self.ndc[0], coord, self.ndc[2]),
+                det3(self.ndc[0], self.ndc[1], coord),
             ) / self.det
         });
         if barycentric.iter().all(|b| b.cmplt(Vec3::ZERO).any()) {
@@ -194,11 +194,11 @@ impl<T: Shader> Sampler<'_, T> {
         } else {
             Bounds::Bounds {
                 lo: ndc_to_pixel(
-                    self.ndc.iter().fold(-Vec2::ONE, |acc, v| acc.min(v.xy())),
+                    self.ndc.iter().fold(-Vec2::ONE, |acc, v| acc.min(*v)),
                     pixels,
                 ),
                 hi: ndc_to_pixel(
-                    self.ndc.iter().fold(Vec2::ONE, |acc, v| acc.max(v.xy())),
+                    self.ndc.iter().fold(Vec2::ONE, |acc, v| acc.max(*v)),
                     pixels,
                 ),
             }
@@ -209,9 +209,9 @@ impl<T: Shader> Sampler<'_, T> {
 /// Vertex shader outputs must have a clip space position
 pub trait HasPosition {
     fn position(&self) -> Vec4;
-    fn ndc(&self) -> Vec4 {
+    fn ndc(&self) -> Vec2 {
         let p = self.position();
-        Vec4::new(p.x / p.w, p.y / p.w, 1., 1. / p.w)
+        Vec2::new(p.x / p.w, p.y / p.w)
     }
 }
 
@@ -230,7 +230,7 @@ pub trait Shader: Sized + Send + Sync {
     fn fragment<F>(
         &self,
         input: Self::VertexOutput,
-        ndc: Vec4,
+        ndc: Vec2,
         barycentric: Vec3,
         front_facing: bool,
         derivative: F,
