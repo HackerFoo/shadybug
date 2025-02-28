@@ -60,7 +60,7 @@ fn main() {
     let bindings = Bindings::new(&view, world_from_local);
 
     // the image will be 1024x1024
-    let img_size = 1024u32 * 2;
+    let img_size = 1024u32;
 
     let mut image = Rgba32FImage::new(img_size, img_size);
 
@@ -213,10 +213,10 @@ impl<'a> Shader for Bindings<'a> {
         let world_normal = dpdx.cross(dpdy).normalize();
 
         // simple lighting based on world normal
-        let brightness = world_normal.z.max(0.) * 0.8 + 0.2;
+        let light = world_normal.z.max(0.) * 0.8 + 0.2;
         let lines = if barycentric.min_element() < 0.03 || (0.025..0.075).contains(&(barycentric.max_element() % 0.1)) { 0.4 } else { 1.0 };
         let checker = if matches!(((input.local_position + 10.125) % 0.5).cmpgt(Vec3::splat(0.25)).bitmask(), 0 | 3 | 5 | 6) { 1. } else { 0.75 };
-        let color = lines * checker * vec3(1., 0., 0.);
+        let color = light * lines * checker * vec3(1., 0., 0.);
 
         Ok(FragmentOutput {
             depth: input.position.z,
