@@ -74,7 +74,7 @@ fn main() {
 
     // render to the image
     render(img_size, &bindings, &vertices, &indices, |x, y, color| {
-        image.put_pixel(x, y, Rgba(color))
+        image.put_pixel(x, img_size - y, Rgba(color))
     });
 
     // convert to an 8-bit image and save
