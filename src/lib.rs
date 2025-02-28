@@ -20,7 +20,7 @@ macro_rules! discard {
     };
 }
 
-/// Used to sample one pixel at a time to get fragment output
+/// Used to sample four pixels at a time to get fragment output
 pub struct Sampler<'a, T: Shader> {
     pub shader: &'a T,
     pub vertex_outputs: [T::VertexOutput; 3],
