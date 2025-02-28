@@ -1,7 +1,6 @@
 use core::{
     cell::Cell,
     fmt::Debug,
-    ops::Deref,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -10,7 +9,7 @@ use crate::SamplerError;
 
 /// Inputs to and outputs from derivative calculation
 #[derive(Clone, Copy, Debug)]
-pub enum Derivative<T> {
+pub(crate) enum Derivative<T> {
     Input(T),
     Output(T, T),
     Invalid,
@@ -23,7 +22,7 @@ impl<T> Default for Derivative<T> {
 }
 
 /// A cell that can be updated with derivative data
-pub struct DerivativeCell<T>(Cell<Derivative<T>>);
+pub(crate) struct DerivativeCell<T>(pub(crate) Cell<Derivative<T>>);
 
 impl<T: Copy + Debug> Debug for DerivativeCell<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
@@ -37,51 +36,33 @@ impl<T> Default for DerivativeCell<T> {
     }
 }
 
-impl<T> Deref for DerivativeCell<T> {
-    type Target = Cell<Derivative<T>>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
 impl<T> Derivative<T> {
-    pub fn get_input(self) -> Option<T> {
+    pub(crate) fn get_input(self) -> Option<T> {
         match self {
             Derivative::Input(input) => Some(input),
             _ => None,
         }
     }
-    pub fn get_dpdx(self) -> Option<T> {
+    pub(crate) fn get_output(self) -> Option<(T, T)> {
         match self {
-            Derivative::Output(dpdx, _) => Some(dpdx),
-            _ => None,
-        }
-    }
-    pub fn get_dpdy(self) -> Option<T> {
-        match self {
-            Derivative::Output(_, dpdy) => Some(dpdy),
+            Derivative::Output(dpdx, dpdy) => Some((dpdx, dpdy)),
             _ => None,
         }
     }
 }
 
 impl<T: Copy + Debug + Default> DerivativeCell<T> {
-    /// asynchronously compute the partial derivative with respect to X position
-    pub async fn dpdx<E>(&self, value: T) -> Result<T, SamplerError<E>> {
-        self.set(Derivative::Input(value));
-        self.await.get_dpdx().ok_or(SamplerError::MissingSample)
-    }
-    /// asynchronously compute the partial derivative with respect to Y position
-    pub async fn dpdy<E>(&self, value: T) -> Result<T, SamplerError<E>> {
-        self.set(Derivative::Input(value));
-        self.await.get_dpdy().ok_or(SamplerError::MissingSample)
+    /// asynchronously compute the partial derivatives with respect to position
+    pub(crate) async fn get_result<E>(&self, value: T) -> Result<(T, T), SamplerError<E>> {
+        self.0.set(Derivative::Input(value));
+        self.await.get_output().ok_or(SamplerError::MissingSample)
     }
 }
 
 impl<'a, T: Copy + Default> Future for &'a DerivativeCell<T> {
     type Output = Derivative<T>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let val = self.get();
+        let val = self.0.get();
         match val {
             Derivative::Output(..) => Poll::Ready(val),
             _ => {

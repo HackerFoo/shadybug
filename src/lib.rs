@@ -9,7 +9,7 @@ use core::{
 
 use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
 
-pub use derivative::{Derivative, DerivativeCell};
+use derivative::{Derivative, DerivativeCell};
 pub use render::{ndc_to_pixel, Bounds, SamplerTile, SamplerTileIter, HasColor, HasDepth, render};
 
 /// Discard a fragment
@@ -105,7 +105,6 @@ impl<T: Shader> Sampler<'_, T> {
 
             // barycentric coordinates, such that multiplying the weights by
             // the vertices will give the coordinates back in position.xy
-            // limit to 1 to ensure coordinates will stay in bounds
             Vec3::new(
                 det3(coord, self.ndc[1].xy(), self.ndc[2].xy()),
                 det3(self.ndc[0].xy(), coord, self.ndc[2].xy()),
@@ -126,8 +125,7 @@ impl<T: Shader> Sampler<'_, T> {
             let barycentric_depth = Interpolate3::interpolate3(&depths, barycentric);
             (
                 barycentric_depth.x,
-                barycentric * Vec3::new(depths[0].y, depths[1].y, depths[2].y)
-                    / barycentric_depth.y,
+                barycentric * (barycentric_depth.y / Vec3::new(depths[0].y, depths[1].y, depths[2].y)),
             )
         });
         if perspective.iter().all(|d| d.0 < 0. || d.0 > 1.) {
@@ -145,7 +143,7 @@ impl<T: Shader> Sampler<'_, T> {
                 let input = Interpolate3::interpolate3(&self.vertex_outputs, perspective);
                 let ndc = Interpolate3::interpolate3(&self.ndc, perspective);
                 self.shader
-                    .fragment(input, ndc, perspective, self.det >= 0., derivative)
+                    .fragment(input, ndc, perspective, self.det >= 0., |x| derivative.get_result(x))
                     .await
             })
         });
@@ -172,7 +170,7 @@ impl<T: Shader> Sampler<'_, T> {
 
             let mut d: [T::DerivativeType; 4] = Default::default();
             for (src, dst) in derivatives.iter().zip(d.iter_mut()) {
-                if let Some(input) = src.get().get_input() {
+                if let Some(input) = src.0.get().get_input() {
                     *dst = input;
                 } else {
                     return results.map(|r| r.unwrap_or(Err(SamplerError::MissingSample)));
@@ -182,10 +180,10 @@ impl<T: Shader> Sampler<'_, T> {
             // calculate derivatives
             let dpdx = [(d[1] - d[0]) / offsets.x, (d[3] - d[2]) / offsets.x];
             let dpdy = [(d[2] - d[0]) / offsets.y, (d[3] - d[1]) / offsets.y];
-            derivatives[0].set(Derivative::Output(dpdx[0], dpdy[0]));
-            derivatives[1].set(Derivative::Output(dpdx[0], dpdy[1]));
-            derivatives[2].set(Derivative::Output(dpdx[1], dpdy[0]));
-            derivatives[3].set(Derivative::Output(dpdx[1], dpdy[1]));
+            derivatives[0].0.set(Derivative::Output(dpdx[0], dpdy[0]));
+            derivatives[1].0.set(Derivative::Output(dpdx[0], dpdy[1]));
+            derivatives[2].0.set(Derivative::Output(dpdx[1], dpdy[0]));
+            derivatives[3].0.set(Derivative::Output(dpdx[1], dpdy[1]));
         }
         results.map(Option::unwrap)
     }
@@ -213,7 +211,7 @@ pub trait HasPosition {
     fn position(&self) -> Vec4;
     fn ndc(&self) -> Vec4 {
         let p = self.position();
-        p.xyz().extend(1.) / p.w
+        Vec4::new(p.x / p.w, p.y / p.w, 1., 1. / p.w)
     }
 }
 
@@ -229,14 +227,15 @@ pub trait Shader: Sized + Send + Sync {
         + Sub<Self::DerivativeType, Output = Self::DerivativeType>
         + Div<f32, Output = Self::DerivativeType>;
     fn vertex(&self, vertex: &Self::Vertex) -> Self::VertexOutput;
-    fn fragment(
+    fn fragment<F>(
         &self,
         input: Self::VertexOutput,
         ndc: Vec4,
         barycentric: Vec3,
         front_facing: bool,
-        derivative: &DerivativeCell<Self::DerivativeType>,
-    ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>;
+        derivative: F,
+    ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>
+    where F: AsyncFn(Self::DerivativeType) -> Result<(Self::DerivativeType, Self::DerivativeType), SamplerError<Self::Error>> + Copy;
     fn draw_triangle<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],
