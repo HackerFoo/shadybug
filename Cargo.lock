@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "shadybug"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "glam",
  "image",
