@@ -1,7 +1,7 @@
 [package]
 name = "shadybug"
 version = "0.3.0"
-edition = "2021" # use 2021 for cargo instruments
+edition = "2024" # use 2021 for cargo instruments
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/HackerFoo/shadybug"
 homepage = "https://github.com/HackerFoo/shadybug"
