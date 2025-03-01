@@ -1,7 +1,6 @@
 use core::{
     future::Future,
     cell::Cell,
-    fmt::Debug,
     pin::Pin,
     task::{Context, Poll},
 };
@@ -9,7 +8,7 @@ use core::{
 use crate::SamplerError;
 
 /// Inputs to and outputs from derivative calculation
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub(crate) enum Derivative<T> {
     Input(T),
     Output(T, T),
@@ -24,12 +23,6 @@ impl<T> Default for Derivative<T> {
 
 /// A cell that can be updated with derivative data
 pub(crate) struct DerivativeCell<T>(pub(crate) Cell<Derivative<T>>);
-
-impl<T: Copy + Debug> Debug for DerivativeCell<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.debug_tuple("DerivativeCell").field(&self.0).finish()
-    }
-}
 
 impl<T> Default for DerivativeCell<T> {
     fn default() -> Self {
@@ -52,7 +45,7 @@ impl<T> Derivative<T> {
     }
 }
 
-impl<T: Copy + Debug + Default> DerivativeCell<T> {
+impl<T: Copy> DerivativeCell<T> {
     /// asynchronously compute the partial derivatives with respect to position
     pub(crate) async fn get_result<E>(&self, value: T) -> Result<(T, T), SamplerError<E>> {
         self.0.set(Derivative::Input(value));
@@ -60,7 +53,7 @@ impl<T: Copy + Debug + Default> DerivativeCell<T> {
     }
 }
 
-impl<'a, T: Copy + Default> Future for &'a DerivativeCell<T> {
+impl<'a, T: Copy> Future for &'a DerivativeCell<T> {
     type Output = Derivative<T>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let val = self.0.get();

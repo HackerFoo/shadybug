@@ -123,26 +123,18 @@ impl<'a, T: Shader<FragmentInput: Clone>> Iterator for SamplerTileIter<'a, T> {
     }
 }
 
-/// Has a depth value
-pub trait HasDepth {
-    fn depth(&self) -> f32;
-}
-
-/// Has a color value
-pub trait HasColor {
-    fn color(&self) -> [f32; 4];
-}
-
 /// Simple tiled renderer
+/// The `consume` function takes x and y coordinates, depth, and fragment output.
+///  It will compare and set depth as well as consume the fragment output.
 pub fn render<S, F>(
     img_size: u32,
     bindings: &S,
     vertices: &[S::Vertex],
     indices: &[usize],
-    mut put_pixel: F,
+    mut consume: F,
 ) where
-    S: Shader<FragmentInput: Clone, FragmentOutput: HasDepth + HasColor>,
-    F: FnMut(u32, u32, [f32; 4]),
+    S: Shader<FragmentInput: Clone>,
+    F: FnMut(u32, u32, &mut f32, S::FragmentOutput),
 {
     const TILE_SIZE: u32 = 32;
     let mut depth_buffer = vec![0.; (TILE_SIZE * TILE_SIZE) as usize];
@@ -158,16 +150,21 @@ pub fn render<S, F>(
                         let coords = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)];
                         for ((x, y), output) in coords.into_iter().zip(
                             sampler
-                                .get(pixel_to_ndc(UVec2::new(x, y), img_size), offsets, inverse_offsets)
+                                .get(
+                                    pixel_to_ndc(UVec2::new(x, y), img_size),
+                                    offsets,
+                                    inverse_offsets,
+                                )
                                 .into_iter(),
                         ) {
                             if let Ok(output) = output {
-                                let depth = &mut depth_buffer
-                                    [((y - lo.y) * TILE_SIZE + (x - lo.x)) as usize];
-                                if output.depth() > *depth {
-                                    *depth = output.depth();
-                                    put_pixel(x, y, output.color());
-                                }
+                                consume(
+                                    x,
+                                    y,
+                                    &mut depth_buffer
+                                        [((y - lo.y) * TILE_SIZE + (x - lo.x)) as usize],
+                                    output,
+                                );
                             }
                         }
                     }

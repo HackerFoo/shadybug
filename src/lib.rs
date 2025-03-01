@@ -11,7 +11,7 @@ use core::{
 use glam::{UVec2, Vec2, Vec3};
 
 use derivative::{Derivative, DerivativeCell};
-pub use render::{Bounds, HasColor, HasDepth, SamplerTile, SamplerTileIter, ndc_to_pixel, render};
+pub use render::{Bounds, SamplerTile, SamplerTileIter, ndc_to_pixel, render};
 
 /// Discard a fragment
 #[macro_export]
@@ -209,18 +209,28 @@ impl<T: Shader> Sampler<'_, T> {
 
 /// Define vertex and fragment shaders
 pub trait Shader: Sized + Send + Sync {
+    /// Input to vertex shader
     type Vertex;
+    /// Output from vertex shader
     type VertexOutput;
+    /// Input to fragment shader, interpolated from vertex output
     type FragmentInput: Interpolate3;
+    /// Output from fragment shader
     type FragmentOutput;
+    /// User errors from fragment shader
     type Error;
+    /// Type of derivatives
+    /// Use an enum if multiple types are needed.
     type DerivativeType: Default
-        + Debug
         + Copy
         + Sub<Self::DerivativeType, Output = Self::DerivativeType>
         + Mul<f32, Output = Self::DerivativeType>;
+    /// Vertex shader
     fn vertex(&self, vertex: &Self::Vertex) -> Self::VertexOutput;
+    /// Perspective division and conversion of vertex outputs to fragment inputs for interpolation
+    /// Returns a fragment input, normalized device coordinates, and the inverse depth
     fn perspective(vertex_output: Self::VertexOutput) -> (Self::FragmentInput, Vec2, f32);
+    /// Fragment shader
     fn fragment<F>(
         &self,
         input: Self::FragmentInput,
@@ -236,6 +246,7 @@ pub trait Shader: Sized + Send + Sync {
                 (Self::DerivativeType, Self::DerivativeType),
                 SamplerError<Self::Error>,
             > + Copy;
+    /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],
@@ -251,6 +262,7 @@ pub trait Shader: Sized + Send + Sync {
         ];
         Sampler::new(self, vertex_outputs)
     }
+    /// Iterate over tiles of size at most `max_size` pixels square
     fn tiled_iter<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],

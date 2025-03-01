@@ -73,9 +73,18 @@ fn main() {
         .collect();
 
     // render to the image
-    render(img_size, &bindings, &vertices, &indices, |x, y, color| {
-        image.put_pixel(x, img_size - 1 - y, Rgba(color))
-    });
+    render(
+        img_size,
+        &bindings,
+        &vertices,
+        &indices,
+        |x, y, depth, output| {
+            if output.depth > *depth {
+                *depth = output.depth;
+                image.put_pixel(x, img_size - 1 - y, Rgba(output.color.into()))
+            }
+        },
+    );
 
     // convert to an 8-bit image and save
     DynamicImage::ImageRgba32F(image)
@@ -149,8 +158,14 @@ impl Interpolate3 for VertexOutput {
     fn interpolate3(input: &[Self; 3], barycentric: Vec3) -> Self {
         Self {
             position: Interpolate3::interpolate3(&input.map(|x| x.position), barycentric),
-            local_position: Interpolate3::interpolate3(&input.map(|x| x.local_position), barycentric),
-            world_position: Interpolate3::interpolate3(&input.map(|x| x.world_position), barycentric),
+            local_position: Interpolate3::interpolate3(
+                &input.map(|x| x.local_position),
+                barycentric,
+            ),
+            world_position: Interpolate3::interpolate3(
+                &input.map(|x| x.world_position),
+                barycentric,
+            ),
         }
     }
 }
@@ -165,17 +180,6 @@ struct FragmentOutput {
     pub world_normal: Vec3,
 }
 
-impl HasDepth for FragmentOutput {
-    fn depth(&self) -> f32 {
-        self.depth
-    }
-}
-impl HasColor for FragmentOutput {
-    fn color(&self) -> [f32; 4] {
-        self.color.into()
-    }
-}
-
 impl<'a> Shader for Bindings<'a> {
     type Vertex = Vertex;
     type VertexOutput = VertexOutput;
@@ -183,6 +187,7 @@ impl<'a> Shader for Bindings<'a> {
     type FragmentOutput = FragmentOutput;
     type Error = ();
     type DerivativeType = Vec3;
+
     fn vertex(&self, vertex: &Vertex) -> VertexOutput {
         let world_position = self.world_from_local * vertex.position.extend(1.);
         VertexOutput {
@@ -205,7 +210,10 @@ impl<'a> Shader for Bindings<'a> {
         barycentric: Vec3,
         front_facing: bool,
         derivative: F,
-    ) -> Result<FragmentOutput, SamplerError> where F: AsyncFn(Vec3) -> Result<(Vec3, Vec3), SamplerError> {
+    ) -> Result<FragmentOutput, SamplerError>
+    where
+        F: AsyncFn(Vec3) -> Result<(Vec3, Vec3), SamplerError>,
+    {
         if !front_facing {
             discard!();
         }
@@ -216,8 +224,23 @@ impl<'a> Shader for Bindings<'a> {
 
         // simple lighting based on world normal
         let light = world_normal.z.max(0.) * 0.8 + 0.2;
-        let lines = if barycentric.min_element() < 0.03 || (0.025..0.075).contains(&(barycentric.max_element() % 0.1)) { 0.4 } else { 1.0 };
-        let checker = if matches!(((input.local_position + 10.125) % 0.5).cmpgt(Vec3::splat(0.25)).bitmask(), 0 | 3 | 5 | 6) { 1. } else { 0.75 };
+        let lines = if barycentric.min_element() < 0.03
+            || (0.025..0.075).contains(&(barycentric.max_element() % 0.1))
+        {
+            0.4
+        } else {
+            1.0
+        };
+        let checker = if matches!(
+            ((input.local_position + 10.125) % 0.5)
+                .cmpgt(Vec3::splat(0.25))
+                .bitmask(),
+            0 | 3 | 5 | 6
+        ) {
+            1.
+        } else {
+            0.75
+        };
         let color = light * lines * checker * vec3(1., 0., 0.);
 
         Ok(FragmentOutput {
