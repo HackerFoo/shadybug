@@ -4,13 +4,14 @@ pub mod render;
 use core::{
     fmt::Debug,
     future::Future,
-    ops::{Add, Div, Mul, Sub}, task,
+    ops::{Add, Mul, Sub},
+    task,
 };
 
-use glam::{UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
+use glam::{UVec2, Vec2, Vec3};
 
 use derivative::{Derivative, DerivativeCell};
-pub use render::{ndc_to_pixel, Bounds, SamplerTile, SamplerTileIter, HasColor, HasDepth, render};
+pub use render::{Bounds, HasColor, HasDepth, SamplerTile, SamplerTileIter, ndc_to_pixel, render};
 
 /// Discard a fragment
 #[macro_export]
@@ -26,7 +27,7 @@ pub struct Sampler<'a, T: Shader> {
     pub fragment_inputs: [T::FragmentInput; 3],
     pub ndc: [Vec2; 3],
     pub inverse_z: Vec3,
-    pub det: f32,
+    pub front_facing: bool,
 }
 
 impl<'a, T: Shader<FragmentInput: Clone>> Clone for Sampler<'a, T> {
@@ -36,7 +37,7 @@ impl<'a, T: Shader<FragmentInput: Clone>> Clone for Sampler<'a, T> {
             fragment_inputs: self.fragment_inputs.clone(),
             ndc: self.ndc.clone(),
             inverse_z: self.inverse_z,
-            det: self.det,
+            front_facing: self.front_facing,
         }
     }
 }
@@ -59,7 +60,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
             fragment_inputs,
             ndc,
             inverse_z: inv_z,
-            det,
+            front_facing: det >= 0.,
         }
     }
 }
@@ -99,6 +100,7 @@ impl<T: Shader> Sampler<'_, T> {
         &self,
         coord: Vec2,
         offsets: Vec2,
+        inverse_offsets: Vec2,
     ) -> [Result<T::FragmentOutput, SamplerError<T::Error>>; 4] {
         let derivatives: [DerivativeCell<T::DerivativeType>; 4] = Default::default();
         let sample_offsets = [Vec2::ZERO, offsets.with_y(0.), offsets.with_x(0.), offsets];
@@ -107,20 +109,21 @@ impl<T: Shader> Sampler<'_, T> {
 
             // barycentric coordinates, such that multiplying the weights by
             // the vertices will give the coordinates back in position.xy
+            // NOTE: not scaled by det3 of self.ndc because it will be cancelled when adjusting for perspective
             Vec3::new(
                 det3(coord, self.ndc[1], self.ndc[2]),
                 det3(self.ndc[0], coord, self.ndc[2]),
                 det3(self.ndc[0], self.ndc[1], coord),
-            ) / self.det
+            )
         });
         if barycentric.iter().all(|b| b.cmplt(Vec3::ZERO).any()) {
             discard4!();
         }
         // adjust barycentric weights for perspective
+        //
         for b in &mut barycentric {
-            *b /= self.inverse_z.dot(*b);
+            *b /= self.inverse_z.dot(*b); // = *b * det / self.inverse_z.dot(*b * det)
         }
-        let mut context = task::Context::from_waker(task::Waker::noop());
         let mut threads = [
             (barycentric[0], &derivatives[0]),
             (barycentric[1], &derivatives[1]),
@@ -132,13 +135,16 @@ impl<T: Shader> Sampler<'_, T> {
                 let input = Interpolate3::interpolate3(&self.fragment_inputs, barycentric);
                 let ndc = Interpolate3::interpolate3(&self.ndc, barycentric);
                 self.shader
-                    .fragment(input, ndc, barycentric, self.det >= 0., |x| derivative.get_result(x))
+                    .fragment(input, ndc, barycentric, self.front_facing, |x| {
+                        derivative.get_result(x)
+                    })
                     .await
             })
         });
 
         // run four threads and compute derivatives whenever they yield
         let mut results = [None, None, None, None];
+        let mut context = task::Context::from_waker(task::Waker::noop());
         loop {
             let mut ready = true;
             for (thread, result) in threads.iter_mut().zip(results.iter_mut()) {
@@ -167,8 +173,14 @@ impl<T: Shader> Sampler<'_, T> {
             }
 
             // calculate derivatives
-            let dpdx = [(d[1] - d[0]) / offsets.x, (d[3] - d[2]) / offsets.x];
-            let dpdy = [(d[2] - d[0]) / offsets.y, (d[3] - d[1]) / offsets.y];
+            let dpdx = [
+                (d[1] - d[0]) * inverse_offsets.x,
+                (d[3] - d[2]) * inverse_offsets.x,
+            ];
+            let dpdy = [
+                (d[2] - d[0]) * inverse_offsets.y,
+                (d[3] - d[1]) * inverse_offsets.y,
+            ];
             derivatives[0].0.set(Derivative::Output(dpdx[0], dpdy[0]));
             derivatives[1].0.set(Derivative::Output(dpdx[0], dpdy[1]));
             derivatives[2].0.set(Derivative::Output(dpdx[1], dpdy[0]));
@@ -178,7 +190,7 @@ impl<T: Shader> Sampler<'_, T> {
     }
     /// Calculate the bounds in pixels
     pub fn bounds(&self, pixels: u32) -> Bounds<UVec2> {
-        if self.det < 0. {
+        if !self.front_facing {
             Bounds::Zero
         } else {
             Bounds::Bounds {
@@ -206,7 +218,7 @@ pub trait Shader: Sized + Send + Sync {
         + Debug
         + Copy
         + Sub<Self::DerivativeType, Output = Self::DerivativeType>
-        + Div<f32, Output = Self::DerivativeType>;
+        + Mul<f32, Output = Self::DerivativeType>;
     fn vertex(&self, vertex: &Self::Vertex) -> Self::VertexOutput;
     fn perspective(vertex_output: Self::VertexOutput) -> (Self::FragmentInput, Vec2, f32);
     fn fragment<F>(
@@ -217,7 +229,13 @@ pub trait Shader: Sized + Send + Sync {
         front_facing: bool,
         derivative: F,
     ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>
-    where F: AsyncFn(Self::DerivativeType) -> Result<(Self::DerivativeType, Self::DerivativeType), SamplerError<Self::Error>> + Copy;
+    where
+        F: AsyncFn(
+                Self::DerivativeType,
+            ) -> Result<
+                (Self::DerivativeType, Self::DerivativeType),
+                SamplerError<Self::Error>,
+            > + Copy;
     fn draw_triangle<'a>(
         &'a self,
         vertices: &'a [Self::Vertex],

@@ -147,6 +147,7 @@ pub fn render<S, F>(
     const TILE_SIZE: u32 = 32;
     let mut depth_buffer = vec![0.; (TILE_SIZE * TILE_SIZE) as usize];
     let offsets = pixel_to_ndc(UVec2::splat(1), img_size) - pixel_to_ndc(UVec2::splat(0), img_size);
+    let inverse_offsets = offsets.recip();
     for tile in bindings.tiled_iter(&vertices, &indices, img_size, TILE_SIZE) {
         depth_buffer.fill(0.);
         for sampler in &tile.samplers {
@@ -157,7 +158,7 @@ pub fn render<S, F>(
                         let coords = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)];
                         for ((x, y), output) in coords.into_iter().zip(
                             sampler
-                                .get(pixel_to_ndc(UVec2::new(x, y), img_size), offsets)
+                                .get(pixel_to_ndc(UVec2::new(x, y), img_size), offsets, inverse_offsets)
                                 .into_iter(),
                         ) {
                             if let Ok(output) = output {
