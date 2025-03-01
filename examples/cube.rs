@@ -62,8 +62,6 @@ fn main() {
     // the image will be 1024x1024
     let img_size = 1024u32;
 
-    let mut image = Rgba32FImage::new(img_size, img_size);
-
     let indices: Vec<usize> = (0..36).collect();
     let vertices: Vec<Vertex> = CUBE_POSITIONS
         .iter()
@@ -73,17 +71,34 @@ fn main() {
         .collect();
 
     // render to the image
-    render(
+    #[derive(Default, Clone, Copy)]
+    struct SubTarget {
+        depth: f32,
+        color: Vec4,
+    }
+
+    // render to the image
+    let image = render(
         img_size,
         &bindings,
         &vertices,
         &indices,
-        |x, y, depth, output| {
-            if output.depth > *depth {
-                *depth = output.depth;
-                image.put_pixel(x, img_size - 1 - y, Rgba(output.color.into()))
+
+        // write
+        |subtarget: &mut SubTarget, output| {
+            if output.depth > subtarget.depth {
+                subtarget.depth = output.depth;
+                subtarget.color = output.color;
             }
         },
+
+        // merge
+        |coord, subtarget, image| {
+            image.put_pixel(coord.x, img_size - 1 - coord.y, Rgba(subtarget.color.into()))
+        },
+
+        // target
+        Rgba32FImage::new(img_size, img_size)
     );
 
     // convert to an 8-bit image and save

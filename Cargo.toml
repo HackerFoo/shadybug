@@ -14,6 +14,7 @@ keywords = [ "gamedev", "graphics", "shader" ]
 [dependencies]
 glam = "0.29"
 image = { version = "0.25", optional = true, default-features = false, features = [ "png" ] }
+rayon = { version = "1.10", optional = true }
 
 [[example]]
 name = "cube"

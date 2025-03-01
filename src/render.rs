@@ -126,29 +126,62 @@ impl<'a, T: Shader<FragmentInput: Clone>> Iterator for SamplerTileIter<'a, T> {
 /// Simple tiled renderer
 /// The `consume` function takes x and y coordinates, depth, and fragment output.
 ///  It will compare and set depth as well as consume the fragment output.
-pub fn render<S, F>(
+#[allow(unused_mut)]
+pub fn render<S, Write, Merge, SubTarget, Target>(
     img_size: u32,
     bindings: &S,
     vertices: &[S::Vertex],
     indices: &[usize],
-    mut consume: F,
-) where
-    S: Shader<FragmentInput: Clone>,
-    F: FnMut(u32, u32, &mut f32, S::FragmentOutput),
+    write: Write,
+    merge: Merge,
+    mut target: Target,
+) -> Target
+where
+    S: Shader<FragmentInput: Clone + Send + Sync>,
+    Write: Fn(&mut SubTarget, S::FragmentOutput) + Send + Sync,
+    Merge: Fn(UVec2, SubTarget, &mut Target) + Send + Sync,
+    SubTarget: Default + Copy + Send + Sync,
+    Target: Send + Sync,
 {
+    #[cfg(feature = "rayon")]
+    use rayon::iter::{ParallelBridge, ParallelIterator};
+    #[cfg(feature = "rayon")]
+    use std::sync::{Arc, Mutex};
+
     const TILE_SIZE: u32 = 32;
-    let mut depth_buffer = vec![0.; (TILE_SIZE * TILE_SIZE) as usize];
+    const COORD_OFFSETS: [UVec2; 4] = [
+        UVec2::new(0, 0),
+        UVec2::new(1, 0),
+        UVec2::new(0, 1),
+        UVec2::new(1, 1),
+    ];
+
+    // compute values for all fragments
     let offsets = pixel_to_ndc(UVec2::splat(1), img_size) - pixel_to_ndc(UVec2::splat(0), img_size);
     let inverse_offsets = offsets.recip();
-    for tile in bindings.tiled_iter(&vertices, &indices, img_size, TILE_SIZE) {
-        depth_buffer.fill(0.);
+
+    // with rayon
+    #[cfg(feature = "rayon")]
+    let target_ref = Arc::new(Mutex::new(target));
+    #[cfg(feature = "rayon")]
+    let iter = bindings
+        .tiled_iter(&vertices, &indices, img_size, TILE_SIZE)
+        .par_bridge();
+
+    // without rayon
+    #[cfg(not(feature = "rayon"))]
+    let iter = bindings
+        .tiled_iter(&vertices, &indices, img_size, TILE_SIZE);
+
+    // iterate over tiles
+    iter.for_each(|tile| {
+        let mut subtarget = vec![Default::default(); tile.size.element_product() as usize];
         for sampler in &tile.samplers {
             // sample each pixel within the bounding box of the triangle
             if let Bounds::Bounds { lo, hi } = tile.bounds(&sampler) {
                 for y in (lo.y..hi.y).step_by(2) {
                     for x in (lo.x..hi.x).step_by(2) {
-                        let coords = [(x, y), (x + 1, y), (x, y + 1), (x + 1, y + 1)];
-                        for ((x, y), output) in coords.into_iter().zip(
+                        for (offset, output) in COORD_OFFSETS.into_iter().zip(
                             sampler
                                 .get(
                                     pixel_to_ndc(UVec2::new(x, y), img_size),
@@ -158,11 +191,8 @@ pub fn render<S, F>(
                                 .into_iter(),
                         ) {
                             if let Ok(output) = output {
-                                consume(
-                                    x,
-                                    y,
-                                    &mut depth_buffer
-                                        [((y - lo.y) * TILE_SIZE + (x - lo.x)) as usize],
+                                write(
+                                    &mut subtarget[((y + offset.y - lo.y) * tile.size.x + x + offset.x - lo.x) as usize],
                                     output,
                                 );
                             }
@@ -171,7 +201,31 @@ pub fn render<S, F>(
                 }
             }
         }
-    }
+
+        // with rayon, clone and unlock
+        #[cfg(feature = "rayon")]
+        let target = Arc::clone(&target_ref);
+        #[cfg(feature = "rayon")]
+        let target = &mut *target.lock().unwrap();
+
+        // without rayon, directly get a mutable reference
+        #[cfg(not(feature = "rayon"))]
+        let target = &mut target;
+
+        // merge subtarget into target
+        (0..tile.size.y)
+            .flat_map(|y| (0..tile.size.x).map(move |x| UVec2::new(x, y)))
+            .zip(subtarget.into_iter())
+            .for_each(|(offset, t)| merge(offset + tile.offset, t, target));
+    });
+
+    // with rayon, unwrap the Arc<Mutex<_>>
+    #[cfg(feature = "rayon")]
+    return Arc::into_inner(target_ref).unwrap().into_inner().unwrap();
+
+    // without rayon
+    #[cfg(not(feature = "rayon"))]
+    return target;
 }
 
 /// Convert a pixel coordinate to normalized device coordinates
