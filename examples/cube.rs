@@ -74,7 +74,7 @@ fn main() {
 
     // render to the image
     render(img_size, &bindings, &vertices, &indices, |x, y, color| {
-        image.put_pixel(x, img_size - y, Rgba(color))
+        image.put_pixel(x, img_size - 1 - y, Rgba(color))
     });
 
     // convert to an 8-bit image and save
@@ -155,12 +155,6 @@ impl Interpolate3 for VertexOutput {
     }
 }
 
-impl HasPosition for VertexOutput {
-    fn position(&self) -> Vec4 {
-        self.position
-    }
-}
-
 /// Fragment output
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -185,6 +179,7 @@ impl HasColor for FragmentOutput {
 impl<'a> Shader for Bindings<'a> {
     type Vertex = Vertex;
     type VertexOutput = VertexOutput;
+    type FragmentInput = VertexOutput;
     type FragmentOutput = FragmentOutput;
     type Error = ();
     type DerivativeType = Vec3;
@@ -195,6 +190,13 @@ impl<'a> Shader for Bindings<'a> {
             local_position: vertex.position,
             world_position: world_position.xyz() / world_position.w,
         }
+    }
+    fn perspective(mut vertex_output: Self::VertexOutput) -> (Self::FragmentInput, Vec2, f32) {
+        let inv_w = vertex_output.position.w.recip();
+        vertex_output.position *= inv_w;
+        vertex_output.local_position *= inv_w;
+        vertex_output.world_position *= inv_w;
+        (vertex_output, vertex_output.position.xy(), inv_w)
     }
     async fn fragment<F>(
         &self,

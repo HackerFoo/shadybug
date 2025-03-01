@@ -10,7 +10,7 @@ pub struct SamplerTile<'a, T: Shader> {
     pub samplers: Vec<Sampler<'a, T>>,
 }
 
-impl<'a, T: Shader> SamplerTile<'a, T> {
+impl<'a, T: Shader<FragmentInput: Clone>> SamplerTile<'a, T> {
     /// Split the tile horizontally
     pub fn split_x(self) -> [Self; 2] {
         let mid = self.size.x / 2;
@@ -98,7 +98,7 @@ pub struct SamplerTileIter<'a, T: Shader> {
     pub tiles: Vec<SamplerTile<'a, T>>,
 }
 
-impl<'a, T: Shader> Iterator for SamplerTileIter<'a, T> {
+impl<'a, T: Shader<FragmentInput: Clone>> Iterator for SamplerTileIter<'a, T> {
     type Item = SamplerTile<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -141,7 +141,7 @@ pub fn render<S, F>(
     indices: &[usize],
     mut put_pixel: F,
 ) where
-    S: Shader<FragmentOutput: HasDepth + HasColor>,
+    S: Shader<FragmentInput: Clone, FragmentOutput: HasDepth + HasColor>,
     F: FnMut(u32, u32, [f32; 4]),
 {
     const TILE_SIZE: u32 = 32;
