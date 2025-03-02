@@ -13,8 +13,12 @@ keywords = [ "gamedev", "graphics", "shader" ]
 
 [dependencies]
 glam = "0.29"
-image = { version = "0.25", optional = true, default-features = false, features = [ "png" ] }
+
+# enable rayon for a parallel version of render::render
 rayon = { version = "1.10", optional = true }
+
+# only required for examples
+image = { version = "0.25", optional = true, default-features = false, features = [ "png" ] }
 
 [[example]]
 name = "cube"
@@ -29,6 +33,7 @@ debug = true
 opt-level = 1
 debug = true
 
+# for profiling on MacOS, optimize but keep debug info
 [profile.profile]
 inherits = "release"
 debug = "full"
