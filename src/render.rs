@@ -1,6 +1,6 @@
 use glam::{UVec2, Vec2};
 
-use crate::{Sampler, Shader};
+use crate::{Sampler, SamplerError, Shader};
 
 /// A tile with all samplers that cover it
 pub struct SamplerTile<'a, T: Shader> {
@@ -127,18 +127,15 @@ impl<'a, T: Shader<FragmentInput: Clone>> Iterator for SamplerTileIter<'a, T> {
 /// The `consume` function takes x and y coordinates, depth, and fragment output.
 ///  It will compare and set depth as well as consume the fragment output.
 #[allow(unused_mut)]
-pub fn render<S, Merge, Target>(
+pub fn render<S>(
     img_size: u32,
     bindings: &S,
     vertices: &[S::Vertex],
     indices: &[usize],
-    merge: Merge,
-    mut target: Target,
-) -> Target
+    mut target: S::Target,
+) -> S::Target
 where
-    S: Shader<FragmentInput: Clone + Send + Sync>,
-    Merge: Fn(UVec2, S::Pixel, &mut Target) + Send + Sync,
-    Target: Send + Sync,
+    S: Shader<FragmentInput: Clone + Send + Sync, Target: Send + Sync> + Send + Sync,
 {
     #[cfg(feature = "rayon")]
     use rayon::iter::{ParallelBridge, ParallelIterator};
@@ -146,6 +143,7 @@ where
     use std::sync::{Arc, Mutex};
 
     const TILE_SIZE: u32 = 32;
+    const SUBSAMPLES: u32 = 4;
     const COORD_OFFSETS: [UVec2; 4] = [
         UVec2::new(0, 0),
         UVec2::new(1, 0),
@@ -156,6 +154,13 @@ where
     // compute values for all fragments
     let offsets = pixel_to_ndc(UVec2::splat(1), img_size) - pixel_to_ndc(UVec2::splat(0), img_size);
     let inverse_offsets = offsets.recip();
+    let sample_offsets = [
+        Vec2::new(0., 0.),
+        Vec2::new(offsets.x, 0.),
+        Vec2::new(0., offsets.y),
+        Vec2::new(offsets.x, offsets.y),
+    ];
+    let sample_offsets = sample_offsets.map(|x| sample_offsets.map(|y| x + y * 0.5));
 
     // with rayon
     #[cfg(feature = "rayon")]
@@ -167,31 +172,48 @@ where
 
     // without rayon
     #[cfg(not(feature = "rayon"))]
-    let iter = bindings
-        .tiled_iter(&vertices, &indices, img_size, TILE_SIZE);
+    let iter = bindings.tiled_iter(&vertices, &indices, img_size, TILE_SIZE);
 
     // iterate over tiles
     iter.for_each(|tile| {
-        let mut subtarget = vec![Default::default(); tile.size.element_product() as usize];
+        let tile_area = tile.size.element_product();
+        let mut subtarget = vec![Default::default(); (tile_area * SUBSAMPLES) as usize];
+        let mut subsampled = vec![false; (tile_area / 4) as usize];
         for sampler in &tile.samplers {
             // sample each pixel within the bounding box of the triangle
             if let Bounds::Bounds { lo, hi } = tile.bounds(&sampler) {
                 for y in (lo.y..hi.y).step_by(2) {
                     for x in (lo.x..hi.x).step_by(2) {
-                        for (offset, output) in COORD_OFFSETS.into_iter().zip(
-                            sampler
-                                .get(
-                                    pixel_to_ndc(UVec2::new(x, y), img_size),
-                                    offsets,
-                                    inverse_offsets,
-                                )
-                                .into_iter(),
-                        ) {
-                            if let Ok(output) = output {
-                                S::combine(
-                                    output,
-                                    &mut subtarget[((y + offset.y - lo.y) * tile.size.x + x + offset.x - lo.x) as usize],
-                                );
+                        let subsampled = &mut subsampled[((y - lo.y) * tile.size.y / 4 + (x - lo.x) / 2) as usize];
+                        'multisample: for sub in 0..4 {
+                            let coord = pixel_to_ndc(UVec2::new(x, y), img_size);
+                            let samples =
+                                sampler.get(coord, &sample_offsets[sub as usize], inverse_offsets);
+                            if sub == 0 {
+                                let outside = samples.iter().fold(0, |acc, s| acc + u32::from(matches!(s, Err(SamplerError::Discard))));
+                                if outside > 0 && outside < 4 {
+                                    *subsampled = true;
+                                }
+                            }
+                            let weight = if *subsampled { 0.25 } else { 1. };
+                            for (offset, output) in
+                                COORD_OFFSETS.into_iter().zip(samples.into_iter())
+                            {
+                                if let Ok(output) = output {
+                                    S::combine(
+                                        output,
+                                        weight,
+                                        &mut subtarget[((sub * tile.size.y + y + offset.y - lo.y)
+                                            * tile.size.x
+                                            + x
+                                            + offset.x
+                                            - lo.x)
+                                            as usize],
+                                    );
+                                }
+                            }
+                            if !*subsampled {
+                                break 'multisample;
                             }
                         }
                     }
@@ -210,10 +232,13 @@ where
         let target = &mut target;
 
         // merge subtarget into target
-        (0..tile.size.y)
-            .flat_map(|y| (0..tile.size.x).map(move |x| UVec2::new(x, y)))
+        (0..SUBSAMPLES)
+            .flat_map(|s| {
+                (0..tile.size.y)
+                    .flat_map(move |y| (0..tile.size.x).map(move |x| (UVec2::new(x, y), s)))
+            })
             .zip(subtarget.into_iter())
-            .for_each(|(offset, t)| merge(offset + tile.offset, t, target));
+            .for_each(|((offset, s), t)| S::merge(offset + tile.offset, s, t, target))
     });
 
     // with rayon, unwrap the Arc<Mutex<_>>

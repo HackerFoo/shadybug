@@ -76,13 +76,6 @@ fn main() {
         &bindings,
         &vertices,
         &indices,
-
-        // merge
-        |coord, subtarget, image| {
-            image.put_pixel(coord.x, img_size - 1 - coord.y, Rgba(subtarget.color.into()))
-        },
-
-        // target
         Rgba32FImage::new(img_size, img_size)
     );
 
@@ -181,7 +174,7 @@ struct FragmentOutput {
 }
 
 #[derive(Default, Clone, Copy)]
-struct Pixel {
+struct Sample {
     pub depth: f32,
     pub color: Vec4,
 }
@@ -191,7 +184,8 @@ impl<'a> Shader for Bindings<'a> {
     type VertexOutput = VertexOutput;
     type FragmentInput = VertexOutput;
     type FragmentOutput = FragmentOutput;
-    type Pixel = Pixel;
+    type Sample = Sample;
+    type Target = Rgba32FImage;
     type Error = ();
     type DerivativeType = Vec3;
 
@@ -226,7 +220,7 @@ impl<'a> Shader for Bindings<'a> {
         }
 
         // compute the world normal from the derivative of the world position
-        let (dpdx, dpdy) = derivative(input.world_position).await?;
+        let (dpdx, dpdy) = derivative(input.world_position).await.unwrap_or_default();
         let world_normal = dpdx.cross(dpdy).normalize();
 
         // simple lighting based on world normal
@@ -257,10 +251,15 @@ impl<'a> Shader for Bindings<'a> {
             world_normal,
         })
     }
-    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Pixel) {
+    fn combine(fragment: Self::FragmentOutput, weight: f32, pixel: &mut Self::Sample) {
         if fragment.depth > pixel.depth {
             pixel.depth = fragment.depth;
-            pixel.color = fragment.color;
+            pixel.color = fragment.color * weight;
         }
+    }
+    fn merge(coord: UVec2, _subsample: u32, sample: Self::Sample, target: &mut Self::Target) {
+        let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
+        let color = Vec4::from(pixel.0) + sample.color;
+        *pixel = Rgba(color.into());
     }
 }

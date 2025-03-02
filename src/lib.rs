@@ -99,30 +99,30 @@ impl<T: Shader> Sampler<'_, T> {
     pub fn get(
         &self,
         coord: Vec2,
-        offsets: Vec2,
+        sample_offsets: &[Vec2; 4],
         inverse_offsets: Vec2,
     ) -> [Result<T::FragmentOutput, SamplerError<T::Error>>; 4] {
         let derivatives: [DerivativeCell<T::DerivativeType>; 4] = Default::default();
-        let sample_offsets = [Vec2::ZERO, offsets.with_y(0.), offsets.with_x(0.), offsets];
         let mut barycentric = sample_offsets.map(|offset| {
             let coord = coord + offset;
 
             // barycentric coordinates, such that multiplying the weights by
             // the vertices will give the coordinates back in position.xy
             // NOTE: not scaled by det3 of self.ndc because it will be cancelled when adjusting for perspective
-            Vec3::new(
+            let barycentric = Vec3::new(
                 det3(coord, self.ndc[1], self.ndc[2]),
                 det3(self.ndc[0], coord, self.ndc[2]),
                 det3(self.ndc[0], self.ndc[1], coord),
-            )
+            );
+            (barycentric, barycentric.cmplt(Vec3::ZERO).any())
         });
-        if barycentric.iter().all(|b| b.cmplt(Vec3::ZERO).any()) {
+        if barycentric.iter().all(|b| b.1) {
             discard4!();
         }
         // adjust barycentric weights for perspective
         //
         for b in &mut barycentric {
-            *b /= self.inverse_z.dot(*b); // = *b * det / self.inverse_z.dot(*b * det)
+            b.0 /= self.inverse_z.dot(b.0); // = *b * det / self.inverse_z.dot(*b * det)
         }
         let mut threads = [
             (barycentric[0], &derivatives[0]),
@@ -130,15 +130,19 @@ impl<T: Shader> Sampler<'_, T> {
             (barycentric[2], &derivatives[2]),
             (barycentric[3], &derivatives[3]),
         ]
-        .map(|(barycentric, derivative)| {
+        .map(|((barycentric, outside), derivative)| {
             Box::pin(async move {
                 let input = Interpolate3::interpolate3(&self.fragment_inputs, barycentric);
                 let ndc = Interpolate3::interpolate3(&self.ndc, barycentric);
-                self.shader
+                let r = self.shader
                     .fragment(input, ndc, barycentric, self.front_facing, |x| {
                         derivative.get_result(x)
                     })
-                    .await
+                    .await;
+                if outside {
+                    discard!();
+                }
+                r
             })
         });
 
@@ -208,7 +212,7 @@ impl<T: Shader> Sampler<'_, T> {
 }
 
 /// Define vertex and fragment shaders
-pub trait Shader: Sized + Send + Sync {
+pub trait Shader: Sized {
     /// Input to vertex shader
     type Vertex;
     /// Output from vertex shader
@@ -217,8 +221,10 @@ pub trait Shader: Sized + Send + Sync {
     type FragmentInput: Interpolate3;
     /// Output from fragment shader
     type FragmentOutput;
-    /// Per pixel data
-    type Pixel: Default + Clone;
+    /// Per sample data
+    type Sample: Default + Clone;
+    /// Target for data to be finally output
+    type Target;
     /// User errors from fragment shader
     type Error;
     /// Type of derivatives
@@ -250,7 +256,9 @@ pub trait Shader: Sized + Send + Sync {
             > + Copy;
     /// Combines fragment data into a pixel
     /// Performs depth test and blending
-    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Pixel);
+    fn combine(fragment: Self::FragmentOutput, weight: f32, sample: &mut Self::Sample);
+    /// Merge samples into a target
+    fn merge(coord: UVec2, subsample: u32, sample: Self::Sample, target: &mut Self::Target);
     /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,
