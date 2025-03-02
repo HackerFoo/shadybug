@@ -217,6 +217,8 @@ pub trait Shader: Sized + Send + Sync {
     type FragmentInput: Interpolate3;
     /// Output from fragment shader
     type FragmentOutput;
+    /// Per pixel data
+    type Pixel: Default + Clone;
     /// User errors from fragment shader
     type Error;
     /// Type of derivatives
@@ -246,6 +248,9 @@ pub trait Shader: Sized + Send + Sync {
                 (Self::DerivativeType, Self::DerivativeType),
                 SamplerError<Self::Error>,
             > + Copy;
+    /// Combines fragment data into a pixel
+    /// Performs depth test and blending
+    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Pixel);
     /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,

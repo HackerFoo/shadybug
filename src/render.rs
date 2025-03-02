@@ -127,20 +127,17 @@ impl<'a, T: Shader<FragmentInput: Clone>> Iterator for SamplerTileIter<'a, T> {
 /// The `consume` function takes x and y coordinates, depth, and fragment output.
 ///  It will compare and set depth as well as consume the fragment output.
 #[allow(unused_mut)]
-pub fn render<S, Write, Merge, SubTarget, Target>(
+pub fn render<S, Merge, Target>(
     img_size: u32,
     bindings: &S,
     vertices: &[S::Vertex],
     indices: &[usize],
-    write: Write,
     merge: Merge,
     mut target: Target,
 ) -> Target
 where
     S: Shader<FragmentInput: Clone + Send + Sync>,
-    Write: Fn(&mut SubTarget, S::FragmentOutput) + Send + Sync,
-    Merge: Fn(UVec2, SubTarget, &mut Target) + Send + Sync,
-    SubTarget: Default + Copy + Send + Sync,
+    Merge: Fn(UVec2, S::Pixel, &mut Target) + Send + Sync,
     Target: Send + Sync,
 {
     #[cfg(feature = "rayon")]
@@ -191,9 +188,9 @@ where
                                 .into_iter(),
                         ) {
                             if let Ok(output) = output {
-                                write(
-                                    &mut subtarget[((y + offset.y - lo.y) * tile.size.x + x + offset.x - lo.x) as usize],
+                                S::combine(
                                     output,
+                                    &mut subtarget[((y + offset.y - lo.y) * tile.size.x + x + offset.x - lo.x) as usize],
                                 );
                             }
                         }

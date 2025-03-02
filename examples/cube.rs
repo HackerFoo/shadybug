@@ -71,26 +71,11 @@ fn main() {
         .collect();
 
     // render to the image
-    #[derive(Default, Clone, Copy)]
-    struct SubTarget {
-        depth: f32,
-        color: Vec4,
-    }
-
-    // render to the image
     let image = render(
         img_size,
         &bindings,
         &vertices,
         &indices,
-
-        // write
-        |subtarget: &mut SubTarget, output| {
-            if output.depth > subtarget.depth {
-                subtarget.depth = output.depth;
-                subtarget.color = output.color;
-            }
-        },
 
         // merge
         |coord, subtarget, image| {
@@ -195,11 +180,18 @@ struct FragmentOutput {
     pub world_normal: Vec3,
 }
 
+#[derive(Default, Clone, Copy)]
+struct Pixel {
+    pub depth: f32,
+    pub color: Vec4,
+}
+
 impl<'a> Shader for Bindings<'a> {
     type Vertex = Vertex;
     type VertexOutput = VertexOutput;
     type FragmentInput = VertexOutput;
     type FragmentOutput = FragmentOutput;
+    type Pixel = Pixel;
     type Error = ();
     type DerivativeType = Vec3;
 
@@ -264,5 +256,11 @@ impl<'a> Shader for Bindings<'a> {
             world_position: input.world_position,
             world_normal,
         })
+    }
+    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Pixel) {
+        if fragment.depth > pixel.depth {
+            pixel.depth = fragment.depth;
+            pixel.color = fragment.color;
+        }
     }
 }
