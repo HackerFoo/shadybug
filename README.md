@@ -1,3 +1,8 @@
+[![License](https://img.shields.io/badge/license-MIT%2FApache-blue.svg)](https://github.com/HackerFoo/shadybug#license)
+[![Crates.io](https://img.shields.io/crates/v/shadybug.svg)](https://crates.io/crates/shadybug)
+[![Downloads](https://img.shields.io/crates/d/shadybug.svg)](https://crates.io/crates/shadybug)
+[![Docs](https://docs.rs/shadybug/badge.svg)](https://docs.rs/bevy/latest/shadybug/)
+
 Shadybug
 ========
 
