@@ -1,4 +1,4 @@
-pub mod derivative;
+pub mod channel;
 pub mod render;
 
 use core::{
@@ -11,7 +11,7 @@ use std::pin::pin;
 
 use glam::{UVec2, Vec2, Vec3};
 
-use derivative::{Derivative, DerivativeCell};
+use channel::{BiChannel, InOut};
 pub use render::{Bounds, SamplerTile, SamplerTileIter, ndc_to_pixel, render};
 
 /// Discard a fragment
@@ -94,6 +94,8 @@ macro_rules! discard4 {
     };
 }
 
+type DerivativeChannel<T> = BiChannel<T, (T, T)>;
+
 impl<T: Shader> Sampler<'_, T> {
     /// Run the fragment shader for the given coordinates and offsets,
     /// running four threads in parallel to produce four results.
@@ -103,7 +105,7 @@ impl<T: Shader> Sampler<'_, T> {
         sample_offsets: &[Vec2; 4],
         inverse_offsets: Vec2,
     ) -> [Result<T::FragmentOutput, SamplerError<T::Error>>; 4] {
-        let derivatives: [DerivativeCell<T::DerivativeType>; 4] = Default::default();
+        let derivatives: [DerivativeChannel<T::DerivativeType>; 4] = Default::default();
         let mut barycentric = sample_offsets.map(|offset| {
             let coord = coord + offset;
 
@@ -137,7 +139,8 @@ impl<T: Shader> Sampler<'_, T> {
         .map(|(barycentric, input, derivative)| {
             self.shader
                 .fragment(input, barycentric, self.front_facing, |x| {
-                    derivative.get_result(x)
+                    derivative.write(x);
+                    derivative.read()
                 })
         });
 
@@ -166,7 +169,7 @@ impl<T: Shader> Sampler<'_, T> {
 
             let mut d: [T::DerivativeType; 4] = Default::default();
             for (src, dst) in derivatives.iter().zip(d.iter_mut()) {
-                if let Some(input) = src.0.get().get_input() {
+                if let InOut::Input(input) = src.0.get() {
                     *dst = input;
                 } else {
                     return results.map(|r| r.unwrap_or(Err(SamplerError::MissingSample)));
@@ -182,10 +185,10 @@ impl<T: Shader> Sampler<'_, T> {
                 (d[2] - d[0]) * inverse_offsets.y,
                 (d[3] - d[1]) * inverse_offsets.y,
             ];
-            derivatives[0].0.set(Derivative::Output(dpdx[0], dpdy[0]));
-            derivatives[1].0.set(Derivative::Output(dpdx[0], dpdy[1]));
-            derivatives[2].0.set(Derivative::Output(dpdx[1], dpdy[0]));
-            derivatives[3].0.set(Derivative::Output(dpdx[1], dpdy[1]));
+            derivatives[0].0.set(InOut::Output((dpdx[0], dpdy[0])));
+            derivatives[1].0.set(InOut::Output((dpdx[0], dpdy[1])));
+            derivatives[2].0.set(InOut::Output((dpdx[1], dpdy[0])));
+            derivatives[3].0.set(InOut::Output((dpdx[1], dpdy[1])));
         }
         for (result, outside) in results.iter_mut().zip(outside.into_iter()) {
             if outside {
@@ -249,12 +252,7 @@ pub trait Shader: Sized {
         derivative: F,
     ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>
     where
-        F: AsyncFn(
-                Self::DerivativeType,
-            ) -> Result<
-                (Self::DerivativeType, Self::DerivativeType),
-                SamplerError<Self::Error>,
-            > + Copy;
+        F: AsyncFn(Self::DerivativeType) -> (Self::DerivativeType, Self::DerivativeType) + Copy;
     /// Combines fragment data into a pixel
     /// Performs depth test and blending
     fn combine(fragment: Self::FragmentOutput, weight: f32, sample: &mut Self::Sample);
@@ -310,7 +308,7 @@ pub enum Stage {
 }
 
 /// Invalid fragment shader outputs
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum SamplerError<T = ()> {
     Discard,
     MissingSample,

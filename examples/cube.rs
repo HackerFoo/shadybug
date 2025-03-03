@@ -212,14 +212,14 @@ impl<'a> Shader for Bindings<'a> {
         derivative: F,
     ) -> Result<FragmentOutput, SamplerError>
     where
-        F: AsyncFn(Vec3) -> Result<(Vec3, Vec3), SamplerError>,
+        F: AsyncFn(Vec3) -> (Vec3, Vec3),
     {
         if !front_facing {
             discard!();
         }
 
         // compute the world normal from the derivative of the world position
-        let (dpdx, dpdy) = derivative(input.world_position).await.unwrap_or_default();
+        let (dpdx, dpdy) = derivative(input.world_position).await;
         let world_normal = dpdx.cross(dpdy).normalize();
 
         // simple lighting based on world normal
