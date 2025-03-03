@@ -7,6 +7,7 @@ use core::{
     ops::{Add, Mul, Sub},
     task,
 };
+use std::pin::pin;
 
 use glam::{UVec2, Vec2, Vec3};
 
@@ -109,42 +110,38 @@ impl<T: Shader> Sampler<'_, T> {
             // barycentric coordinates, such that multiplying the weights by
             // the vertices will give the coordinates back in position.xy
             // NOTE: not scaled by det3 of self.ndc because it will be cancelled when adjusting for perspective
-            let barycentric = Vec3::new(
+            Vec3::new(
                 det3(coord, self.ndc[1], self.ndc[2]),
                 det3(self.ndc[0], coord, self.ndc[2]),
                 det3(self.ndc[0], self.ndc[1], coord),
-            );
-            (barycentric, barycentric.cmplt(Vec3::ZERO).any())
+            )
         });
-        if barycentric.iter().all(|b| b.1) {
+        let outside = barycentric.each_ref().map(|b| b.cmplt(Vec3::ZERO).any());
+        if outside.iter().all(|x| *x) {
             discard4!();
         }
         // adjust barycentric weights for perspective
         //
         for b in &mut barycentric {
-            b.0 /= self.inverse_z.dot(b.0); // = *b * det / self.inverse_z.dot(*b * det)
+            *b /= self.inverse_z.dot(*b); // = *b * det / self.inverse_z.dot(*b * det)
         }
-        let mut threads = [
-            (barycentric[0], &derivatives[0]),
-            (barycentric[1], &derivatives[1]),
-            (barycentric[2], &derivatives[2]),
-            (barycentric[3], &derivatives[3]),
+        let [input0, input1, input2, input3] = barycentric
+            .map(|barycentric| Interpolate3::interpolate3(&self.fragment_inputs, barycentric));
+        let [barycentric0, barycentric1, barycentric2, barycentric3] = barycentric;
+        let [thread0, thread1, thread2, thread3] = [
+            (barycentric0, input0, &derivatives[0]),
+            (barycentric1, input1, &derivatives[1]),
+            (barycentric2, input2, &derivatives[2]),
+            (barycentric3, input3, &derivatives[3]),
         ]
-        .map(|((barycentric, outside), derivative)| {
-            Box::pin(async move {
-                let input = Interpolate3::interpolate3(&self.fragment_inputs, barycentric);
-                let ndc = Interpolate3::interpolate3(&self.ndc, barycentric);
-                let r = self.shader
-                    .fragment(input, ndc, barycentric, self.front_facing, |x| {
-                        derivative.get_result(x)
-                    })
-                    .await;
-                if outside {
-                    discard!();
-                }
-                r
-            })
+        .map(|(barycentric, input, derivative)| {
+            self.shader
+                .fragment(input, barycentric, self.front_facing, |x| {
+                    derivative.get_result(x)
+                })
         });
+
+        let mut threads = [pin!(thread0), pin!(thread1), pin!(thread2), pin!(thread3)];
 
         // run four threads and compute derivatives whenever they yield
         let mut results = [None, None, None, None];
@@ -189,6 +186,11 @@ impl<T: Shader> Sampler<'_, T> {
             derivatives[1].0.set(Derivative::Output(dpdx[0], dpdy[1]));
             derivatives[2].0.set(Derivative::Output(dpdx[1], dpdy[0]));
             derivatives[3].0.set(Derivative::Output(dpdx[1], dpdy[1]));
+        }
+        for (result, outside) in results.iter_mut().zip(outside.into_iter()) {
+            if outside {
+                *result = Some(Err(SamplerError::Discard));
+            }
         }
         results.map(Option::unwrap)
     }
@@ -242,7 +244,6 @@ pub trait Shader: Sized {
     fn fragment<F>(
         &self,
         input: Self::FragmentInput,
-        ndc: Vec2,
         barycentric: Vec3,
         front_facing: bool,
         derivative: F,
