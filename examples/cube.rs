@@ -250,40 +250,21 @@ impl<'a> Shader for Bindings<'a> {
             world_normal,
         })
     }
-    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Sample) -> bool {
+    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Sample) {
         if fragment.depth > pixel.depth {
             pixel.depth = fragment.depth;
             pixel.color = fragment.color;
-            true
-        } else {
-            false
         }
     }
-    fn merge<I: Iterator<Item = ((UVec2, bool), Self::Sample)>>(
+    fn merge<I: Iterator<Item = (UVec2, Self::Sample)>>(
         offset: UVec2,
-        size: UVec2,
+        _size: UVec2,
         iter: I,
         target: &mut Self::Target,
     ) {
-        // merge subtarget into target
-        for ((pos, subsampled), sample) in iter {
-            let w = if subsampled { 0.25 } else { 1. };
+        for (pos, sample) in iter {
             let coord = offset + pos;
-            let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
-            let color = Vec4::from(pixel.0) + sample.color * w;
-            *pixel = Rgba(color.into());
-        }
-
-        // convert from pre-multiplied alpha
-        for y in 0..size.y {
-            for x in 0..size.x {
-                let coord = offset + UVec2::new(x, y);
-                let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
-                let color = Vec4::from(pixel.0);
-                if color.w > 0. {
-                    *pixel = Rgba((color.xyz() / color.w).extend(color.w).into());
-                }
-            }
+            target.put_pixel(coord.x, target.height() - 1 - coord.y, Rgba(sample.color.into()));
         }
     }
 }

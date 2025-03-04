@@ -255,9 +255,9 @@ pub trait Shader: Sized {
         F: AsyncFn(Self::DerivativeType) -> (Self::DerivativeType, Self::DerivativeType) + Copy;
     /// Combines fragment data into a pixel
     /// Performs depth test and blending
-    fn combine(fragment: Self::FragmentOutput, sample: &mut Self::Sample) -> bool;
+    fn combine(fragment: Self::FragmentOutput, sample: &mut Self::Sample);
     /// Merge samples into a target
-    fn merge<I: Iterator<Item = ((UVec2, bool), Self::Sample)>>(offset: UVec2, size: UVec2, iter: I, target: &mut Self::Target);
+    fn merge<I: Iterator<Item = (UVec2, Self::Sample)>>(offset: UVec2, size: UVec2, iter: I, target: &mut Self::Target);
     /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,
