@@ -34,8 +34,13 @@ pub fn linear_to_srgb(color: Vec4) -> Vec4 {
 
 #[cfg(feature = "png")]
 impl Target<Vec4> {
-    pub fn write_png<P: AsRef<Path>>(self, path: P) {
-        let file = File::create(path).unwrap();
+    /// Write target data as a PNG
+    pub fn write_png<P: AsRef<Path>>(self, path: P) -> bool {
+
+        // from png crate documentation
+        let Ok(file) = File::create(path) else {
+            return false
+        };
         let ref mut w = BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, self.size.x, self.size.y);
         encoder.set_color(png::ColorType::Rgba);
@@ -48,7 +53,11 @@ impl Target<Vec4> {
             (0.15000, 0.06000),
         );
         encoder.set_source_chromaticities(source_chromaticities);
-        let mut writer = encoder.write_header().unwrap();
+        let Ok(mut writer) = encoder.write_header() else {
+            return false
+        };
+
+        // convert float pixels in linear RGBA to 8-bit sRGBA
         let data: Vec<u8> = self
             .pixels
             .into_iter()
@@ -58,7 +67,8 @@ impl Target<Vec4> {
                     .map(|x| (x * 256.).round().clamp(0., 255.) as u8)
             })
             .collect();
-        writer.write_image_data(&data).unwrap();
+
+        writer.write_image_data(&data).is_ok()
     }
 }
 
