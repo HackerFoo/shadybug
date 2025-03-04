@@ -1,9 +1,10 @@
+/// Basic types useful with the Shader trait
 use std::ops::{Index, IndexMut};
 
 use glam::{UVec2, Vec3, Vec4, Vec4Swizzles};
 
 #[cfg(feature = "png")]
-use std::{path::Path, fs::File, io::BufWriter};
+use std::{fs::File, io::BufWriter, path::Path};
 
 #[derive(Clone, Debug)]
 pub struct Target<Pixel> {
@@ -12,6 +13,7 @@ pub struct Target<Pixel> {
 }
 
 impl<Pixel> Target<Pixel> {
+    /// Create a new Target with the given `size` and fill it with `pixel`.
     pub fn new(size: UVec2, pixel: Pixel) -> Self
     where
         Pixel: Clone,
@@ -23,7 +25,8 @@ impl<Pixel> Target<Pixel> {
     }
 }
 
-// from https://gamedev.stackexchange.com/a/194038
+/// Convert from linear RGB to sRGB
+/// from https://gamedev.stackexchange.com/a/194038
 pub fn linear_to_srgb(color: Vec4) -> Vec4 {
     let rgb = color.xyz();
     let cutoff = rgb.cmplt(Vec3::splat(0.0031308));
@@ -36,10 +39,9 @@ pub fn linear_to_srgb(color: Vec4) -> Vec4 {
 impl Target<Vec4> {
     /// Write target data as a PNG
     pub fn write_png<P: AsRef<Path>>(self, path: P) -> bool {
-
         // from png crate documentation
         let Ok(file) = File::create(path) else {
-            return false
+            return false;
         };
         let ref mut w = BufWriter::new(file);
         let mut encoder = png::Encoder::new(w, self.size.x, self.size.y);
@@ -54,7 +56,7 @@ impl Target<Vec4> {
         );
         encoder.set_source_chromaticities(source_chromaticities);
         let Ok(mut writer) = encoder.write_header() else {
-            return false
+            return false;
         };
 
         // convert float pixels in linear RGBA to 8-bit sRGBA

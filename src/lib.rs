@@ -1,6 +1,6 @@
+pub mod basic;
 pub mod channel;
 pub mod render;
-pub mod basic;
 
 use core::{
     fmt::Debug,
@@ -32,12 +32,12 @@ pub struct Sampler<'a, T: Shader> {
     pub front_facing: bool,
 }
 
-impl<'a, T: Shader<FragmentInput: Clone>> Clone for Sampler<'a, T> {
+impl<T: Shader<FragmentInput: Clone>> Clone for Sampler<'_, T> {
     fn clone(&self) -> Self {
         Self {
             shader: self.shader,
             fragment_inputs: self.fragment_inputs.clone(),
-            ndc: self.ndc.clone(),
+            ndc: self.ndc,
             inverse_z: self.inverse_z,
             front_facing: self.front_facing,
         }
@@ -254,11 +254,16 @@ pub trait Shader: Sized {
     ) -> impl Future<Output = Result<Self::FragmentOutput, SamplerError<Self::Error>>>
     where
         F: AsyncFn(Self::DerivativeType) -> (Self::DerivativeType, Self::DerivativeType) + Copy;
-    /// Combines fragment data into a pixel
+    /// Combine fragment data into a pixel
     /// Performs depth test and blending
     fn combine(fragment: Self::FragmentOutput, sample: &mut Self::Sample);
-    /// Merge samples into a target
-    fn merge<I: Iterator<Item = (UVec2, Self::Sample)>>(offset: UVec2, size: UVec2, iter: I, target: &mut Self::Target);
+    /// Consume an iterator over the tile with the given offset and size and write to the target
+    fn merge<I: Iterator<Item = (UVec2, Self::Sample)>>(
+        offset: UVec2,
+        size: UVec2,
+        iter: I,
+        target: &mut Self::Target,
+    );
     /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,

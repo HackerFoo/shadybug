@@ -175,7 +175,7 @@ where
 
     // without rayon
     #[cfg(not(feature = "rayon"))]
-    let iter = bindings.tiled_iter(&vertices, &indices, img_size, TILE_SIZE);
+    let iter = bindings.tiled_iter(vertices, indices, img_size, TILE_SIZE);
 
     // iterate over tiles
     iter.for_each(|tile| {
@@ -183,13 +183,12 @@ where
         let mut subtarget = vec![Default::default(); tile_area as usize];
         for sampler in &tile.samplers {
             // sample each pixel within the bounding box of the triangle
-            if let Bounds::Bounds { mut lo, mut hi } = tile.bounds(&sampler) {
+            if let Bounds::Bounds { mut lo, mut hi } = tile.bounds(sampler) {
                 for y in (lo.y..hi.y).step_by(2) {
                     for x in (lo.x..hi.x).step_by(2) {
                         let tile_coord = UVec2::new(x, y) - lo;
                         let coord = pixel_to_ndc(UVec2::new(x, y), img_size);
-                        let samples =
-                            sampler.get(coord, &sample_offsets, inverse_offsets);
+                        let samples = sampler.get(coord, &sample_offsets, inverse_offsets);
                         for (offset, output) in COORD_OFFSETS.into_iter().zip(samples.into_iter()) {
                             if let Ok(output) = output {
                                 S::combine(
@@ -215,7 +214,7 @@ where
 
         let iter = (0..tile.size.y)
             .flat_map(move |y| (0..tile.size.x).map(move |x| UVec2::new(x, y)))
-            .zip(subtarget.into_iter());
+            .zip(subtarget);
 
         S::merge(tile.offset, tile.size, iter, target);
     });

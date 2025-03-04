@@ -48,14 +48,14 @@ impl<In: Copy, Out: Copy> BiChannel<In, Out> {
     }
 }
 
-impl<'a, In: Copy, Out: Copy> Future for &'a BiChannel<In, Out> {
+impl<In: Copy, Out: Copy> Future for &BiChannel<In, Out> {
     type Output = Out;
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.get() {
             InOut::Output(out) => {
                 self.0.set(InOut::Empty);
                 Poll::Ready(out)
-            },
+            }
             _ => Poll::Pending,
         }
     }

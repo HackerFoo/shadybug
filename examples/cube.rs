@@ -71,7 +71,7 @@ fn main() {
 
     // render to the image
     let image = render(
-        img_size * 2,
+        img_size * 2, // supersampling at twice the resolution
         &bindings,
         &vertices,
         &indices,
@@ -251,6 +251,7 @@ impl<'a> Shader for Bindings<'a> {
         iter: I,
         target: &mut Self::Target,
     ) {
+        // sum each 2x2 block of pixels, converting to pre-multiplied alpha
         let downsampled_offset = offset / 2;
         let downsampled_size = size / 2;
         for (pos, sample) in iter {
@@ -258,7 +259,7 @@ impl<'a> Shader for Bindings<'a> {
             target[coord] += (sample.color.xyz() * sample.color.w).extend(sample.color.w);
         }
 
-        // convert from pre-multiplied alpha
+        // convert back from pre-multiplied alpha
         for y in 0..downsampled_size.y {
             for x in 0..downsampled_size.x {
                 let coord = downsampled_offset + UVec2::new(x, y);
