@@ -1,5 +1,6 @@
 pub mod channel;
 pub mod render;
+pub mod basic;
 
 use core::{
     fmt::Debug,

@@ -18,11 +18,11 @@ glam = "0.29"
 rayon = { version = "1.10", optional = true }
 
 # only required for examples
-image = { version = "0.25", optional = true, default-features = false, features = [ "png" ] }
+png = { version = "0.17", optional = true }
 
 [[example]]
 name = "cube"
-required-features = [ "image" ]
+required-features = [ "png" ]
 
 # always optimize dependencies
 [profile.dev.package."*"]

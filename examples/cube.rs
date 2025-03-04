@@ -1,8 +1,7 @@
 use core::f32::consts::PI;
 
 use glam::*;
-use image::{DynamicImage, Rgba, Rgba32FImage};
-use shadybug::*;
+use shadybug::{basic::*, *};
 
 const CUBE_POSITIONS: [[f32; 3]; 36] = [
     [-1.0, 1.0, -1.0],
@@ -72,18 +71,14 @@ fn main() {
 
     // render to the image
     let image = render(
-        img_size,
+        img_size * 2,
         &bindings,
         &vertices,
         &indices,
-        Rgba32FImage::new(img_size, img_size),
+        Target::new(UVec2::splat(img_size), Vec4::ZERO),
     );
 
-    // convert to an 8-bit image and save
-    DynamicImage::ImageRgba32F(image)
-        .into_rgba8()
-        .save("cube.png")
-        .unwrap();
+    image.write_png("cube.png");
 }
 
 /// View transforms
@@ -173,19 +168,13 @@ struct FragmentOutput {
     pub world_normal: Vec3,
 }
 
-#[derive(Default, Clone, Copy, Debug)]
-struct Sample {
-    pub depth: f32,
-    pub color: Vec4,
-}
-
 impl<'a> Shader for Bindings<'a> {
     type Vertex = Vertex;
     type VertexOutput = VertexOutput;
     type FragmentInput = VertexOutput;
     type FragmentOutput = FragmentOutput;
     type Sample = Sample;
-    type Target = Rgba32FImage;
+    type Target = Target<Vec4>;
     type Error = ();
     type DerivativeType = Vec3;
 
@@ -258,13 +247,24 @@ impl<'a> Shader for Bindings<'a> {
     }
     fn merge<I: Iterator<Item = (UVec2, Self::Sample)>>(
         offset: UVec2,
-        _size: UVec2,
+        size: UVec2,
         iter: I,
         target: &mut Self::Target,
     ) {
+        let downsampled_offset = offset / 2;
+        let downsampled_size = size / 2;
         for (pos, sample) in iter {
-            let coord = offset + pos;
-            target.put_pixel(coord.x, target.height() - 1 - coord.y, Rgba(sample.color.into()));
+            let coord = downsampled_offset + pos / 2;
+            target[coord] += (sample.color.xyz() * sample.color.w).extend(sample.color.w);
+        }
+
+        // convert from pre-multiplied alpha
+        for y in 0..downsampled_size.y {
+            for x in 0..downsampled_size.x {
+                let coord = downsampled_offset + UVec2::new(x, y);
+                let color = &mut target[coord];
+                *color = (color.xyz() / color.w).extend(color.w * 0.25);
+            }
         }
     }
 }
