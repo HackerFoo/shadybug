@@ -161,7 +161,13 @@ where
         Vec2::new(0., 1.),
         Vec2::new(1., 1.),
     ];
-    let sample_offsets = sample_offsets.map(|x| sample_offsets.map(|y| offsets * (x * 0.5 + y)));
+    let sub_sample_offsets = [
+        Vec2::new(-1., -1.),
+        Vec2::new(-1., 1.),
+        Vec2::new(1., -1.),
+        Vec2::new(1., 1.),
+    ];
+    let sample_offsets = sub_sample_offsets.map(|x| sample_offsets.map(|y| offsets * (x * 0.25 + y)));
 
     fn index(coord: UVec2, row_width: u32) -> usize {
         (coord.y * row_width + coord.x) as usize
@@ -200,7 +206,8 @@ where
                 for y in (lo.y..hi.y).step_by(2) {
                     for x in (lo.x..hi.x).step_by(2) {
                         let tile_coord = UVec2::new(x, y) - lo;
-                        let subsampled = &mut subsampled[downsample_index(tile_coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
+                        let subsampled = &mut subsampled
+                            [downsample_index(tile_coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
                         let coord = pixel_to_ndc(UVec2::new(x, y), img_size);
                         'multisample: for sub in 0..4 {
                             let samples =
@@ -212,13 +219,27 @@ where
                                 if let Ok(output) = output {
                                     if S::combine(
                                         output,
-                                        &mut subtarget[index3((tile_coord + offset).extend(sub), tile.size)],
+                                        &mut subtarget
+                                            [index3((tile_coord + offset).extend(sub), tile.size)],
                                     ) {
                                         write_count += 1;
                                     }
                                 }
                             }
-                            if !matches!(write_count, 0 | 4) {
+                            if sub == 0 && !matches!(write_count, 0 | 4) {
+                                // copy subsamples if not subsampled earlier
+                                if !*subsampled {
+                                    for offset in COORD_OFFSETS {
+                                        let sample = subtarget
+                                            [index3((tile_coord + offset).extend(0), tile.size)].clone();
+                                        for sub in 1..4 {
+                                            subtarget[index3(
+                                                (tile_coord + offset).extend(sub),
+                                                tile.size,
+                                            )] = sample.clone();
+                                        }
+                                    }
+                                }
                                 *subsampled = true;
                             }
                             if !*subsampled {
@@ -243,15 +264,13 @@ where
 
         let iter = (0..4)
             .flat_map(|s| {
-                (0..tile.size.y).flat_map(move |y| {
-                    (0..tile.size.x).map(move |x| {
-                        (UVec2::new(x, y), s)
-                    })
-                })
+                (0..tile.size.y)
+                    .flat_map(move |y| (0..tile.size.x).map(move |x| (UVec2::new(x, y), s)))
             })
             .zip(subtarget.into_iter())
             .filter_map(|((coord, s), t)| {
-                let subsampled = subsampled[downsample_index(coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
+                let subsampled =
+                    subsampled[downsample_index(coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
                 (s == 0 || subsampled).then_some(((coord, subsampled), t))
             });
 
