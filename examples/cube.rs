@@ -76,7 +76,7 @@ fn main() {
         &bindings,
         &vertices,
         &indices,
-        Rgba32FImage::new(img_size, img_size)
+        Rgba32FImage::new(img_size, img_size),
     );
 
     // convert to an 8-bit image and save
@@ -165,7 +165,7 @@ impl Interpolate3 for VertexOutput {
 
 /// Fragment output
 #[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct FragmentOutput {
     pub depth: f32,
     pub color: Vec4,
@@ -173,7 +173,7 @@ struct FragmentOutput {
     pub world_normal: Vec3,
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Default, Clone, Copy, Debug)]
 struct Sample {
     pub depth: f32,
     pub color: Vec4,
@@ -244,21 +244,46 @@ impl<'a> Shader for Bindings<'a> {
         let color = light * lines * checker * vec3(1., 0., 0.);
 
         Ok(FragmentOutput {
-            depth: input.position.z,
+            depth: input.position.z / input.position.w,
             color: color.extend(1.),
             world_position: input.world_position,
             world_normal,
         })
     }
-    fn combine(fragment: Self::FragmentOutput, weight: f32, pixel: &mut Self::Sample) {
+    fn combine(fragment: Self::FragmentOutput, pixel: &mut Self::Sample) -> bool {
         if fragment.depth > pixel.depth {
             pixel.depth = fragment.depth;
-            pixel.color = fragment.color * weight;
+            pixel.color = fragment.color;
+            true
+        } else {
+            false
         }
     }
-    fn merge(coord: UVec2, _subsample: u32, sample: Self::Sample, target: &mut Self::Target) {
-        let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
-        let color = Vec4::from(pixel.0) + sample.color;
-        *pixel = Rgba(color.into());
+    fn merge<I: Iterator<Item = ((UVec2, bool), Self::Sample)>>(
+        offset: UVec2,
+        size: UVec2,
+        iter: I,
+        target: &mut Self::Target,
+    ) {
+        // merge subtarget into target
+        for ((pos, subsampled), sample) in iter {
+            let w = if subsampled { 0.25 } else { 1. };
+            let coord = offset + pos;
+            let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
+            let color = Vec4::from(pixel.0) + sample.color * w;
+            *pixel = Rgba(color.into());
+        }
+
+        // convert from pre-multiplied alpha
+        for y in 0..size.y {
+            for x in 0..size.x {
+                let coord = offset + UVec2::new(x, y);
+                let pixel = target.get_pixel_mut(coord.x, target.height() - 1 - coord.y);
+                let color = Vec4::from(pixel.0);
+                if color.w > 0. {
+                    *pixel = Rgba((color.xyz() / color.w).extend(color.w).into());
+                }
+            }
+        }
     }
 }

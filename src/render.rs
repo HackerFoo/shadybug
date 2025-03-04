@@ -1,6 +1,6 @@
-use glam::{UVec2, Vec2};
+use glam::{UVec2, UVec3, Vec2};
 
-use crate::{Sampler, SamplerError, Shader};
+use crate::{Sampler, Shader};
 
 /// A tile with all samplers that cover it
 pub struct SamplerTile<'a, T: Shader> {
@@ -144,6 +144,7 @@ where
 
     const TILE_SIZE: u32 = 32;
     const SUBSAMPLES: u32 = 4;
+    const SUBSAMPLE_GROUP_SIZE: u32 = 2;
     const COORD_OFFSETS: [UVec2; 4] = [
         UVec2::new(0, 0),
         UVec2::new(1, 0),
@@ -156,11 +157,21 @@ where
     let inverse_offsets = offsets.recip();
     let sample_offsets = [
         Vec2::new(0., 0.),
-        Vec2::new(offsets.x, 0.),
-        Vec2::new(0., offsets.y),
-        Vec2::new(offsets.x, offsets.y),
+        Vec2::new(1., 0.),
+        Vec2::new(0., 1.),
+        Vec2::new(1., 1.),
     ];
-    let sample_offsets = sample_offsets.map(|x| sample_offsets.map(|y| x + y * 0.5));
+    let sample_offsets = sample_offsets.map(|x| sample_offsets.map(|y| offsets * (x * 0.5 + y)));
+
+    fn index(coord: UVec2, row_width: u32) -> usize {
+        (coord.y * row_width + coord.x) as usize
+    }
+    fn downsample_index(coord: UVec2, row_width: u32, block_size: u32) -> usize {
+        index(coord / block_size, row_width / block_size)
+    }
+    fn index3(coord: UVec3, size: UVec2) -> usize {
+        ((coord.z * size.y + coord.y) * size.x + coord.x) as usize
+    }
 
     // with rayon
     #[cfg(feature = "rayon")]
@@ -177,40 +188,38 @@ where
     // iterate over tiles
     iter.for_each(|tile| {
         let tile_area = tile.size.element_product();
+        let subsample_flag_area = (tile.size / SUBSAMPLE_GROUP_SIZE).element_product();
         let mut subtarget = vec![Default::default(); (tile_area * SUBSAMPLES) as usize];
-        let mut subsampled = vec![false; (tile_area / 4) as usize];
+        let mut subsampled = vec![false; subsample_flag_area as usize];
         for sampler in &tile.samplers {
             // sample each pixel within the bounding box of the triangle
-            if let Bounds::Bounds { lo, hi } = tile.bounds(&sampler) {
+            if let Bounds::Bounds { mut lo, mut hi } = tile.bounds(&sampler) {
+                // snap to nearest even row and column
+                lo -= lo & 1;
+                hi += hi & 1;
                 for y in (lo.y..hi.y).step_by(2) {
                     for x in (lo.x..hi.x).step_by(2) {
-                        let subsampled = &mut subsampled[((y - lo.y) * tile.size.y / 4 + (x - lo.x) / 2) as usize];
+                        let tile_coord = UVec2::new(x, y) - lo;
+                        let subsampled = &mut subsampled[downsample_index(tile_coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
+                        let coord = pixel_to_ndc(UVec2::new(x, y), img_size);
                         'multisample: for sub in 0..4 {
-                            let coord = pixel_to_ndc(UVec2::new(x, y), img_size);
                             let samples =
                                 sampler.get(coord, &sample_offsets[sub as usize], inverse_offsets);
-                            if sub == 0 {
-                                let outside = samples.iter().fold(0, |acc, s| acc + u32::from(matches!(s, Err(SamplerError::Discard))));
-                                if outside > 0 && outside < 4 {
-                                    *subsampled = true;
-                                }
-                            }
-                            let weight = if *subsampled { 0.25 } else { 1. };
+                            let mut write_count = 0;
                             for (offset, output) in
                                 COORD_OFFSETS.into_iter().zip(samples.into_iter())
                             {
                                 if let Ok(output) = output {
-                                    S::combine(
+                                    if S::combine(
                                         output,
-                                        weight,
-                                        &mut subtarget[((sub * tile.size.y + y + offset.y - lo.y)
-                                            * tile.size.x
-                                            + x
-                                            + offset.x
-                                            - lo.x)
-                                            as usize],
-                                    );
+                                        &mut subtarget[index3((tile_coord + offset).extend(sub), tile.size)],
+                                    ) {
+                                        write_count += 1;
+                                    }
                                 }
+                            }
+                            if !matches!(write_count, 0 | 4) {
+                                *subsampled = true;
                             }
                             if !*subsampled {
                                 break 'multisample;
@@ -230,15 +239,23 @@ where
         // without rayon, directly get a mutable reference
         #[cfg(not(feature = "rayon"))]
         let target = &mut target;
+        let subsampled = &subsampled;
 
-        // merge subtarget into target
-        (0..SUBSAMPLES)
+        let iter = (0..4)
             .flat_map(|s| {
-                (0..tile.size.y)
-                    .flat_map(move |y| (0..tile.size.x).map(move |x| (UVec2::new(x, y), s)))
+                (0..tile.size.y).flat_map(move |y| {
+                    (0..tile.size.x).map(move |x| {
+                        (UVec2::new(x, y), s)
+                    })
+                })
             })
             .zip(subtarget.into_iter())
-            .for_each(|((offset, s), t)| S::merge(offset + tile.offset, s, t, target))
+            .filter_map(|((coord, s), t)| {
+                let subsampled = subsampled[downsample_index(coord, tile.size.x, SUBSAMPLE_GROUP_SIZE)];
+                (s == 0 || subsampled).then_some(((coord, subsampled), t))
+            });
+
+        S::merge(tile.offset, tile.size, iter, target);
     });
 
     // with rayon, unwrap the Arc<Mutex<_>>

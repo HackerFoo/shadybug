@@ -169,7 +169,7 @@ impl<T: Shader> Sampler<'_, T> {
 
             let mut d: [T::DerivativeType; 4] = Default::default();
             for (src, dst) in derivatives.iter().zip(d.iter_mut()) {
-                if let InOut::Input(input) = src.0.get() {
+                if let InOut::Input(input) = src.get() {
                     *dst = input;
                 } else {
                     return results.map(|r| r.unwrap_or(Err(SamplerError::MissingSample)));
@@ -185,10 +185,10 @@ impl<T: Shader> Sampler<'_, T> {
                 (d[2] - d[0]) * inverse_offsets.y,
                 (d[3] - d[1]) * inverse_offsets.y,
             ];
-            derivatives[0].0.set(InOut::Output((dpdx[0], dpdy[0])));
-            derivatives[1].0.set(InOut::Output((dpdx[0], dpdy[1])));
-            derivatives[2].0.set(InOut::Output((dpdx[1], dpdy[0])));
-            derivatives[3].0.set(InOut::Output((dpdx[1], dpdy[1])));
+            derivatives[0].set(InOut::Output((dpdx[0], dpdy[0])));
+            derivatives[1].set(InOut::Output((dpdx[0], dpdy[1])));
+            derivatives[2].set(InOut::Output((dpdx[1], dpdy[0])));
+            derivatives[3].set(InOut::Output((dpdx[1], dpdy[1])));
         }
         for (result, outside) in results.iter_mut().zip(outside.into_iter()) {
             if outside {
@@ -255,9 +255,9 @@ pub trait Shader: Sized {
         F: AsyncFn(Self::DerivativeType) -> (Self::DerivativeType, Self::DerivativeType) + Copy;
     /// Combines fragment data into a pixel
     /// Performs depth test and blending
-    fn combine(fragment: Self::FragmentOutput, weight: f32, sample: &mut Self::Sample);
+    fn combine(fragment: Self::FragmentOutput, sample: &mut Self::Sample) -> bool;
     /// Merge samples into a target
-    fn merge(coord: UVec2, subsample: u32, sample: Self::Sample, target: &mut Self::Target);
+    fn merge<I: Iterator<Item = ((UVec2, bool), Self::Sample)>>(offset: UVec2, size: UVec2, iter: I, target: &mut Self::Target);
     /// Create a sampler to draw the given triangle defined by three vertex indices
     fn draw_triangle<'a>(
         &'a self,
