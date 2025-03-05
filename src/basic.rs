@@ -30,7 +30,8 @@ impl<Pixel> Target<Pixel> {
             let low_row = y * self.size.x;
             let high_row = flipped_y * self.size.x;
             for x in 0..self.size.x {
-                self.pixels.swap((low_row + x) as usize, (high_row + x) as usize);
+                self.pixels
+                    .swap((low_row + x) as usize, (high_row + x) as usize);
             }
         }
     }

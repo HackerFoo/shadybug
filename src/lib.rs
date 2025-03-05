@@ -287,18 +287,23 @@ pub trait Shader: Sized {
         vertices: &'a [Self::Vertex],
         indices: &'a [usize],
         pixels: u32,
+        alignment: u32,
         max_size: u32,
     ) -> SamplerTileIter<'a, Self> {
         let samplers: Vec<_> = indices
             .chunks(3)
             .map(|indices| self.draw_triangle(vertices, indices))
             .collect();
+        assert!(alignment & 1 == 0, "odd alignment");
+        assert!(pixels % alignment == 0, "pixel size not aligned");
+        assert!(max_size % alignment == 0, "max tile size not aligned");
         SamplerTileIter {
             max_size,
             tiles: vec![SamplerTile {
                 offset: UVec2::ZERO,
                 size: UVec2::splat(pixels),
                 pixels,
+                alignment,
                 samplers,
             }],
         }

@@ -7,13 +7,15 @@ pub struct SamplerTile<'a, T: Shader> {
     pub offset: UVec2,
     pub size: UVec2,
     pub pixels: u32,
+    pub alignment: u32,
     pub samplers: Vec<Sampler<'a, T>>,
 }
 
 impl<'a, T: Shader<FragmentInput: Clone>> SamplerTile<'a, T> {
     /// Split the tile horizontally
     pub fn split_x(self) -> [Self; 2] {
-        let mid = self.size.x / 2;
+        let mut mid = self.size.x / 2;
+        mid += mid % self.alignment;
         let mut left = Vec::new();
         let mut right = Vec::new();
         for sampler in self.samplers {
@@ -33,19 +35,22 @@ impl<'a, T: Shader<FragmentInput: Clone>> SamplerTile<'a, T> {
                 offset: self.offset,
                 size: UVec2::new(mid, self.size.y),
                 pixels: self.pixels,
+                alignment: self.alignment,
                 samplers: left,
             },
             Self {
                 offset: UVec2::new(self.offset.x + mid, self.offset.y),
                 size: UVec2::new(self.size.x - mid, self.size.y),
                 pixels: self.pixels,
+                alignment: self.alignment,
                 samplers: right,
             },
         ]
     }
     /// Split the tile vertically
     pub fn split_y(self) -> [Self; 2] {
-        let mid = self.size.y / 2;
+        let mut mid = self.size.y / 2;
+        mid += mid % self.alignment;
         let mut bottom = Vec::new();
         let mut top = Vec::new();
         for sampler in self.samplers {
@@ -65,12 +70,14 @@ impl<'a, T: Shader<FragmentInput: Clone>> SamplerTile<'a, T> {
                 offset: self.offset,
                 size: UVec2::new(self.size.x, mid),
                 pixels: self.pixels,
+                alignment: self.alignment,
                 samplers: bottom,
             },
             Self {
                 offset: UVec2::new(self.offset.x, self.offset.y + mid),
                 size: UVec2::new(self.size.x, self.size.y - mid),
                 pixels: self.pixels,
+                alignment: self.alignment,
                 samplers: top,
             },
         ]
@@ -142,6 +149,7 @@ where
     #[cfg(feature = "rayon")]
     use std::sync::{Arc, Mutex};
 
+    const TILE_ALIGNMENT: u32 = 2;
     const TILE_SIZE: u32 = 32;
     const COORD_OFFSETS: [UVec2; 4] = [
         UVec2::new(0, 0),
@@ -170,12 +178,12 @@ where
     let target_ref = Arc::new(Mutex::new(target));
     #[cfg(feature = "rayon")]
     let iter = bindings
-        .tiled_iter(&vertices, &indices, img_size, TILE_SIZE)
+        .tiled_iter(&vertices, &indices, img_size, TILE_ALIGNMENT, TILE_SIZE)
         .par_bridge();
 
     // without rayon
     #[cfg(not(feature = "rayon"))]
-    let iter = bindings.tiled_iter(vertices, indices, img_size, TILE_SIZE);
+    let iter = bindings.tiled_iter(vertices, indices, img_size, TILE_ALIGNMENT, TILE_SIZE);
 
     // iterate over tiles
     iter.for_each(|tile| {
