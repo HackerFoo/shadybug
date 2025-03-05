@@ -70,7 +70,7 @@ fn main() {
         .collect();
 
     // render to the image
-    let mut image = render(
+    let image = render(
         img_size * 2, // supersampling at twice the resolution
         &bindings,
         &vertices,
@@ -78,7 +78,6 @@ fn main() {
         Target::new(UVec2::splat(img_size), Vec4::ZERO),
     );
 
-    image.flip_vertically();
     image.write_png("cube.png");
 }
 

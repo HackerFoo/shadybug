@@ -89,13 +89,15 @@ impl<Pixel> Index<UVec2> for Target<Pixel> {
     type Output = Pixel;
 
     fn index(&self, index: UVec2) -> &Self::Output {
-        &self.pixels[(index.y * self.size.x + index.x) as usize]
+        let flipped_y = self.size.y - 1 - index.y;
+        &self.pixels[(flipped_y * self.size.x + index.x) as usize]
     }
 }
 
 impl<Pixel> IndexMut<UVec2> for Target<Pixel> {
     fn index_mut(&mut self, index: UVec2) -> &mut Self::Output {
-        &mut self.pixels[(index.y * self.size.x + index.x) as usize]
+        let flipped_y = self.size.y - 1 - index.y;
+        &mut self.pixels[(flipped_y * self.size.x + index.x) as usize]
     }
 }
 
