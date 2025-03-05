@@ -23,6 +23,17 @@ impl<Pixel> Target<Pixel> {
             pixels: vec![pixel; size.element_product() as usize],
         }
     }
+    /// Flip the pixels vertically.
+    pub fn flip_vertically(&mut self) {
+        for y in 0..(self.size.y / 2) {
+            let flipped_y = self.size.y - 1 - y;
+            let low_row = y * self.size.x;
+            let high_row = flipped_y * self.size.x;
+            for x in 0..self.size.x {
+                self.pixels.swap((low_row + x) as usize, (high_row + x) as usize);
+            }
+        }
+    }
 }
 
 /// Convert from linear RGB to sRGB
