@@ -132,14 +132,14 @@ impl<T: Shader> Sampler<'_, T> {
             .map(|barycentric| Interpolate3::interpolate3(&self.fragment_inputs, barycentric));
         let [barycentric0, barycentric1, barycentric2, barycentric3] = barycentric;
         let [thread0, thread1, thread2, thread3] = [
-            (barycentric0, input0, &derivatives[0]),
-            (barycentric1, input1, &derivatives[1]),
-            (barycentric2, input2, &derivatives[2]),
-            (barycentric3, input3, &derivatives[3]),
+            (barycentric0, input0, &derivatives[0], sample_offsets[0]),
+            (barycentric1, input1, &derivatives[1], sample_offsets[1]),
+            (barycentric2, input2, &derivatives[2], sample_offsets[2]),
+            (barycentric3, input3, &derivatives[3], sample_offsets[3]),
         ]
-        .map(|(barycentric, input, derivative)| {
+        .map(|(barycentric, input, derivative, offset)| {
             self.shader
-                .fragment(input, barycentric, self.front_facing, |x| {
+                .fragment(input, coord + offset, barycentric, self.front_facing, |x| {
                     derivative.write(x);
                     derivative.read()
                 })
@@ -248,6 +248,7 @@ pub trait Shader: Sized {
     fn fragment<F>(
         &self,
         input: Self::FragmentInput,
+        ndc: Vec2,
         barycentric: Vec3,
         front_facing: bool,
         derivative: F,
