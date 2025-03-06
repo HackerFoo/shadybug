@@ -52,14 +52,8 @@ fn main() {
 
     let view = View::new(view_from_world, clip_from_view);
 
-    // rotate the cube and scale it a bit to make it look nice
-    let world_from_local =
-        Mat4::from_axis_angle(Vec3::ONE.normalize(), PI / 4.) * Mat4::from_scale(Vec3::splat(0.8));
-
-    let bindings = Bindings::new(&view, world_from_local);
-
     // the image will be 1024x1024
-    let img_size = 1024u32;
+    let img_size = 512u32;
 
     let indices: Vec<usize> = (0..36).collect();
     let vertices: Vec<Vertex> = CUBE_POSITIONS
@@ -68,17 +62,33 @@ fn main() {
             position: (*p).into(),
         })
         .collect();
+    let frames = 60;
+    let frame_delay_ms = 33;
 
     // render to the image
-    let image = render(
-        img_size * 2, // supersampling at twice the resolution
-        &bindings,
-        &vertices,
-        &indices,
-        Target::new(UVec2::splat(img_size), Vec4::ZERO),
-    );
+    Target::write_apng(
+        (0..frames).map(|frame| {
+            let time = frame as f32 / frames as f32;
 
-    image.write_png("cube.png");
+            // rotate the cube and scale it a bit to make it look nice
+            let s = (time * 2. * PI).sin();
+            let world_from_local = Mat4::from_axis_angle(Vec3::ONE.normalize(), (s * 0.125 + 0.25) * PI)
+                * Mat4::from_scale(Vec3::splat(0.8));
+
+            let bindings = Bindings::new(&view, world_from_local, time);
+            render(
+                img_size * 2, // supersampling at twice the resolution
+                &bindings,
+                &vertices,
+                &indices,
+                Target::new(UVec2::splat(img_size), Vec4::ZERO),
+            )
+        }),
+        "cube.png",
+        UVec2::splat(img_size),
+        frames,
+        frame_delay_ms,
+    );
 }
 
 /// View transforms
@@ -115,13 +125,15 @@ impl View {
 struct Bindings<'a> {
     world_from_local: Mat4,
     view: &'a View,
+    time: f32,
 }
 
 impl<'a> Bindings<'a> {
-    fn new(view: &'a View, world_from_local: Mat4) -> Self {
+    fn new(view: &'a View, world_from_local: Mat4, time: f32) -> Self {
         Self {
             world_from_local,
             view,
+            time,
         }
     }
 }
@@ -214,8 +226,9 @@ impl<'a> Shader for Bindings<'a> {
 
         // simple lighting based on world normal
         let light = world_normal.z.max(0.) * 0.8 + 0.2;
-        let lines = if barycentric.min_element() < 0.03
-            || (0.025..0.075).contains(&(barycentric.max_element() % 0.1))
+        let s = 0.3;
+        let lines = if barycentric.min_element() < 0.3 * s
+            || (0.25 * s .. 0.75 * s).contains(&(barycentric.max_element() % s))
         {
             0.4
         } else {
