@@ -15,7 +15,7 @@ Examples
 
 Try this:
 
-    cargo run --example cube  --features image
+    cargo run --example cube  --features png,rayon
 
 which should create an image named `cube.png`:
 
