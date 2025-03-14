@@ -88,14 +88,16 @@ impl Target<Vec4> {
         let data: Vec<u8> = self.into_bytes().collect();
         writer.write_image_data(&data).unwrap();
     }
-    pub fn write_apng<I: IntoIterator<Item = Self>, P: AsRef<Path>>(frames: I, path: P, size: UVec2, num_frames: u32, delay_ms: u32) {
-        assert!(delay_ms < 65536, "delay_ms too large");
+    pub fn write_apng<I: IntoIterator<Item = Self>, P: AsRef<Path>>(frames: I, path: P, size: UVec2, num_frames: u32, delay_10ms: u32) {
+        assert!(delay_10ms < 65536, "delay_ms too large");
         assert!(num_frames > 0, "no frames");
         let file = File::create(path).unwrap();
         let ref mut w = BufWriter::new(file);
         let mut encoder = new_png_encoder(w, size);
         encoder.set_animated(num_frames, 0).unwrap();
-        encoder.set_frame_delay(delay_ms as u16, 1000).unwrap();
+        encoder.set_frame_delay(delay_10ms as u16, 100).unwrap();
+        encoder.set_dispose_op(png::DisposeOp::Background).unwrap();
+        encoder.validate_sequence(true);
         let mut writer = encoder.write_header().unwrap();
         let mut data = Vec::new();
         let mut frame_count = 0;

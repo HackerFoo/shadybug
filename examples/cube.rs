@@ -62,8 +62,8 @@ fn main() {
             position: (*p).into(),
         })
         .collect();
-    let frames = 60;
-    let frame_delay_ms = 33;
+    let frames = 50;
+    let frame_delay_10ms = 4;
 
     // render to the image
     Target::write_apng(
@@ -87,7 +87,7 @@ fn main() {
         "cube.png",
         UVec2::splat(img_size),
         frames,
-        frame_delay_ms,
+        frame_delay_10ms,
     );
 }
 
