@@ -190,6 +190,8 @@ impl<'a> Shader for Bindings<'a> {
     type Error = ();
     type DerivativeType = Vec3;
 
+    const MIN_DET: f32 = 1e-6;
+
     fn vertex(&self, vertex: &Vertex) -> VertexOutput {
         let world_position = self.world_from_local * vertex.position.extend(1.);
         VertexOutput {

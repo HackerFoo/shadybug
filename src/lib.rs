@@ -29,7 +29,7 @@ pub struct Sampler<'a, T: Shader> {
     pub fragment_inputs: [T::FragmentInput; 3],
     pub ndc: [Vec2; 3],
     pub inverse_z: Vec3,
-    pub front_facing: bool,
+    pub det: f32,
 }
 
 impl<T: Shader<FragmentInput: Clone>> Clone for Sampler<'_, T> {
@@ -39,7 +39,7 @@ impl<T: Shader<FragmentInput: Clone>> Clone for Sampler<'_, T> {
             fragment_inputs: self.fragment_inputs.clone(),
             ndc: self.ndc,
             inverse_z: self.inverse_z,
-            front_facing: self.front_facing,
+            det: self.det,
         }
     }
 }
@@ -62,7 +62,7 @@ impl<'a, T: Shader> Sampler<'a, T> {
             fragment_inputs,
             ndc,
             inverse_z: inv_z,
-            front_facing: det >= 0.,
+            det,
         }
     }
 }
@@ -139,7 +139,7 @@ impl<T: Shader> Sampler<'_, T> {
         ]
         .map(|(barycentric, input, derivative, offset)| {
             self.shader
-                .fragment(input, coord + offset, barycentric, self.front_facing, |x| {
+                .fragment(input, coord + offset, barycentric, self.front_facing(), |x| {
                     derivative.write(x);
                     derivative.read()
                 })
@@ -200,7 +200,7 @@ impl<T: Shader> Sampler<'_, T> {
     }
     /// Calculate the bounds in pixels
     pub fn bounds(&self, pixels: u32) -> Bounds<UVec2> {
-        if !self.front_facing {
+        if !self.front_facing() {
             Bounds::Zero
         } else {
             Bounds::Bounds {
@@ -214,6 +214,9 @@ impl<T: Shader> Sampler<'_, T> {
                 ),
             }
         }
+    }
+    pub fn front_facing(&self) -> bool {
+        self.det > 0.
     }
 }
 
@@ -239,6 +242,7 @@ pub trait Shader: Sized {
         + Copy
         + Sub<Self::DerivativeType, Output = Self::DerivativeType>
         + Mul<f32, Output = Self::DerivativeType>;
+    const MIN_DET: f32;
     /// Vertex shader
     fn vertex(&self, vertex: &Self::Vertex) -> Self::VertexOutput;
     /// Perspective division and conversion of vertex outputs to fragment inputs for interpolation
@@ -270,7 +274,7 @@ pub trait Shader: Sized {
         &'a self,
         vertices: &'a [Self::Vertex],
         indices: &'a [usize],
-    ) -> Sampler<'a, Self>
+    ) -> Option<Sampler<'a, Self>>
     where
         Self: Sized,
     {
@@ -279,7 +283,8 @@ pub trait Shader: Sized {
             self.vertex(&vertices[indices[1]]),
             self.vertex(&vertices[indices[2]]),
         ];
-        Sampler::new(self, vertex_outputs)
+        let sampler = Sampler::new(self, vertex_outputs);
+        (sampler.det.abs() > Self::MIN_DET).then_some(sampler)
     }
     /// Iterate over tiles of size at most `max_size` pixels square
     fn tiled_iter<'a>(
@@ -292,7 +297,7 @@ pub trait Shader: Sized {
     ) -> SamplerTileIter<'a, Self> {
         let samplers: Vec<_> = indices
             .chunks(3)
-            .map(|indices| self.draw_triangle(vertices, indices))
+            .filter_map(|indices| self.draw_triangle(vertices, indices))
             .collect();
         assert!(alignment & 1 == 0, "odd alignment");
         assert!(pixels % alignment == 0, "pixel size not aligned");
